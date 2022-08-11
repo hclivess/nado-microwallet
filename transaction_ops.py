@@ -357,7 +357,10 @@ def validate_origin(transaction: dict):
 
     return True
 
-
+def get_recommneded_fee(target, port):
+    url = f"http://{target}:{port}/get_recommended_fee"
+    result = json.loads(requests.get(url, timeout=3).text)
+    return result['fee']
 def create_transaction(sender, recipient, amount, public_key, private_key, timestamp, data, fee):
     """construct transaction, then add txid, then add signature as last"""
     transaction_message = {

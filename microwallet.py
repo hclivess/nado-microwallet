@@ -7,12 +7,13 @@ import time
 import customtkinter
 import requests
 
-from config import get_timestamp_seconds, get_port, create_config
+from config import get_timestamp_seconds, get_port, create_config, config_found
 from keys import load_keys, keyfile_found, save_keys, generate_keys
 from log_ops import get_logger
 from peer_ops import load_ips
-from transaction_ops import create_transaction, to_readable_amount, to_raw_amount
+from transaction_ops import create_transaction, to_readable_amount, to_raw_amount, get_recommneded_fee
 from dircheck import make_folder
+
 
 
 def address_copy():
@@ -23,6 +24,8 @@ def address_copy():
 def insert_clipboard(where):
     where.delete(0, customtkinter.END)
     where.insert(customtkinter.INSERT, app.clipboard_get())
+
+
 
 
 class Wallet:
@@ -43,10 +46,7 @@ class Wallet:
         except Exception as e:
             print(f"Failed to reconnect: {e}")
 
-    def get_recommneded_fee(self):
-        url = f"http://{self.target}:{self.port}/get_recommended_fee"
-        result = json.loads(requests.get(url, timeout=3).text)
-        init_fee.set(f"{result['fee']}")
+
 
     def get_balance(self):
         try:
@@ -105,7 +105,8 @@ class RefreshClient(threading.Thread):
     def run(self):
         while not self.quit:
             wallet.get_balance()
-            wallet.get_recommneded_fee()
+            init_fee.set(get_recommneded_fee(target=wallet.target,
+                                             port=wallet.port))
 
             if not wallet.connected:
                 wallet.reconnect()
@@ -116,7 +117,7 @@ if __name__ == "__main__":
     logger = get_logger(file="wallet.log")
 
     make_folder("private", strict=False)
-    if not os.path.exists("private/config.dat"):
+    if not config_found():
         create_config()
     if not keyfile_found():
         save_keys(generate_keys())
