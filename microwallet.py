@@ -7,7 +7,6 @@ import time
 import customtkinter
 import requests
 
-from block_ops import fee_over_blocks
 from config import get_timestamp_seconds, get_port, create_config
 from keys import load_keys, keyfile_found, save_keys, generate_keys
 from log_ops import get_logger

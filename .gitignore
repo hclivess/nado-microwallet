@@ -1,6 +1,5 @@
 private/
 logs/
-peers/
 .idea/
 
 # Byte-compiled / optimized / DLL files
