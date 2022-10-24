@@ -72,7 +72,7 @@ class Wallet:
     def send_transaction(self):
         transaction = create_transaction(sender=address,
                                          recipient=recipient.get(),
-                                         amount=to_raw_amount(int(amount.get())),
+                                         amount=to_raw_amount(amount.get()),
                                          data={"data": data.get(), "command": command.get()},
                                          fee=int(fee.get()),
                                          public_key=public_key,
