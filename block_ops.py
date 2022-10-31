@@ -9,7 +9,9 @@ from hashing import blake2b_hash_link
 from keys import load_keys
 from log_ops import get_logger
 from peer_ops import load_peer
-from account_ops import get_burn_bonus
+from account_ops import get_account_value
+
+
 def check_block_structure():
     """check timestamp, etc if syncing blocks from others"""
     pass
@@ -66,7 +68,9 @@ def get_block_candidate(
         block_producers, block_producers_hash, transaction_pool, logger, peer_file_lock
 ):
     latest_block = get_latest_block_info(logger=logger)
-    best_producer = pick_best_producer(block_producers, logger=logger)
+    best_producer = pick_best_producer(block_producers,
+                                       logger=logger,
+                                       peer_file_lock=peer_file_lock)
 
     logger.info(
         f"Producing block candidate for: {block_producers} won by {best_producer}"
@@ -103,27 +107,6 @@ def fee_over_blocks(logger, number_of_blocks=250):
         return average(fees)
     else:
         return 0
-
-
-def get_producer_penalty(producer, logger, blocks_backward=50):
-    """calculates how many blocks a miner mined over a given period"""
-    latest_block_info = get_latest_block_info(logger=logger)
-    parent = latest_block_info["block_hash"]
-    latest_block_number = latest_block_info["block_number"]
-    block_number = latest_block_number
-    produced_count = 0
-
-    while 0 < block_number > (latest_block_number - blocks_backward):
-        block = load_block(parent, logger=logger)
-        parent = block["parent_hash"]
-        block_number = block["block_number"]
-
-        if block["block_creator"] == producer:
-            produced_count += 1
-
-    return produced_count
-
-
 def get_transaction_pool_demo():
     """use for demo only"""
     config = get_config()
@@ -252,10 +235,8 @@ def construct_block(
     block_message.update(block_hash=block_hash)
     block_message.update(block_timestamp=get_timestamp_seconds())
 
-    producer = block_message["block_creator"]
-    block_penalty = get_penalty(producer=producer,
-                                block_hash=block_hash,
-                                logger=logger)
+    block_penalty = get_penalty(producer_address=creator,
+                                block_hash=block_hash)
 
     block_message.update(block_penalty=block_penalty)
     return block_message
@@ -346,28 +327,33 @@ def get_since_last_block(logger) -> [str, None]:
     return since_last_block
 
 
-
-def get_penalty(producer, block_hash, logger):
-    miner_penalty = get_producer_penalty(producer=producer, logger=logger)
-    hash_miner_penalty = get_hash_penalty(a=producer, b=block_hash) + miner_penalty * 1000000000
-    block_penalty = hash_miner_penalty - (get_burn_bonus(producer) / hash_miner_penalty)
+def get_penalty(producer_address, block_hash):
+    miner_penalty = get_account_value(address=producer_address, key="account_produced")
+    combined_penalty = get_hash_penalty(a=producer_address, b=block_hash) + miner_penalty
+    block_penalty = combined_penalty - get_account_value(producer_address, key="account_burned") * 100
     return block_penalty
-def pick_best_producer(block_producers, logger):
+
+
+def pick_best_producer(block_producers, logger, peer_file_lock):
     block_hash = get_latest_block_info(logger=logger)["block_hash"]
 
     previous_block_penalty = None
     best_producer = None
 
-    for producer in block_producers:
-        block_penalty = get_penalty(producer=producer,
-                                    block_hash=block_hash,
-                                    logger=logger)
+    for producer_ip in block_producers:
+        producer_address = load_peer(logger=logger,
+                                     ip=producer_ip,
+                                     key="peer_address",
+                                     peer_file_lock=peer_file_lock)
+
+        block_penalty = get_penalty(producer_address=producer_address,
+                                    block_hash=block_hash)
 
         if not previous_block_penalty:
             previous_block_penalty = block_penalty
 
         if block_penalty <= previous_block_penalty:
-            best_producer = producer
+            best_producer = producer_ip
 
     return best_producer
 

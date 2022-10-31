@@ -5,6 +5,7 @@ import threading
 import time
 
 import customtkinter
+import msgpack
 import requests
 
 from config import get_timestamp_seconds, get_port, create_config, config_found
@@ -81,7 +82,7 @@ class Wallet:
 
         print(transaction)
         try:
-            url = f"http://{self.target}:{self.port}/submit_transaction?data={json.dumps(transaction)}"
+            url = f"http://{self.target}:{self.port}/submit_transaction?data={msgpack.packb(transaction)}"
             result = json.loads(requests.get(url, timeout=3).text)
             status_label.set_text(f"{result['message']}")
             self.refresh_counter = 10
