@@ -80,12 +80,10 @@ class Wallet:
                                          private_key=private_key,
                                          timestamp=get_timestamp_seconds())
 
-        print(transaction)
         try:
-            url = f"http://{self.target}:{self.port}/submit_transaction?data={msgpack.packb(transaction)}&compress=msgpack"
+            url = f"http://{self.target}:{self.port}/submit_transaction?data={json.dumps(transaction)}"
             result = requests.get(url, timeout=3).content
-            result_decoded = msgpack.unpackb(result)
-            print(result_decoded)
+            result_decoded = json.loads(result)["message"]
             status_label.set_text(result_decoded)
             self.refresh_counter = 10
 
@@ -93,6 +91,7 @@ class Wallet:
             print(f"Could not connect to submit transaction: {e}")
             connection_label.set_text("Disconnected")
             self.connected = False
+            raise
 def exit_app():
     refresh.quit = True
     app.quit()
