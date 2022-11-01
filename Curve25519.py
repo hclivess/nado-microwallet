@@ -16,14 +16,14 @@ def unhex(hexed):
 def sign(private_key, message):
     private_bytes = unhex(private_key)
     private_key_raw = Ed25519PrivateKey.generate().from_private_bytes(private_bytes)
-    signed = private_key_raw.sign(message.encode()).hex()
+    signed = private_key_raw.sign(message).hex()
     return signed
 
 
 def verify(signed, public_key, message):
     public_bytes = unhex(public_key)
     public_key_raw = Ed25519PublicKey.from_public_bytes(public_bytes)
-    public_key_raw.verify(unhex(signed), message.encode())
+    public_key_raw.verify(unhex(signed), message)
     return True
 
 

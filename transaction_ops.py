@@ -3,6 +3,7 @@ import json
 import os
 import time
 
+import msgpack
 import requests
 
 from Curve25519 import sign, verify
@@ -15,12 +16,16 @@ from data_ops import sort_list_dict
 from hashing import create_nonce, blake2b_hash
 from keys import load_keys
 from log_ops import get_logger
+from account_ops import get_account, reflect_transaction
 
 
 def calculate_fee():
     return 1
 
-
+def get_recommneded_fee(target, port):
+    url = f"http://{target}:{port}/get_recommended_fee"
+    result = json.loads(requests.get(url, timeout=3).text)
+    return result['fee']
 def get_transaction(txid, logger):
     """return transaction based on txid"""
     transaction_path = f"transactions/{txid}.dat"
@@ -75,47 +80,7 @@ def sort_transaction_pool(transactions: list, key="txid") -> list:
     )
 
 
-def get_account(address, create_on_error=True):
-    """return all account information if account exists else create it"""
-    account_path = f"accounts/{address}/balance.dat"
-    if os.path.exists(account_path):
-        with open(account_path, "r") as account_file:
-            account = json.load(account_file)
-        return account
-    elif create_on_error:
-        return create_account(address)
-    else:
-        return None
 
-
-def reflect_transaction(transaction, revert=False):
-    sender = transaction["sender"]
-    recipient = transaction["recipient"]
-    amount = transaction["amount"]
-
-    if revert:
-        change_balance(address=sender, amount=amount)
-        change_balance(address=recipient, amount=-amount)
-    else:
-        change_balance(address=sender, amount=-amount)
-        change_balance(address=recipient, amount=amount)
-
-
-def change_balance(address: str, amount: int):
-    while True:
-        try:
-            account_message = get_account(address)
-            account_message["account_balance"] += amount
-            assert (
-                    account_message["account_balance"] >= 0
-            ), "Cannot change balance into negative"
-
-            with open(f"accounts/{address}/balance.dat", "w") as account_file:
-                account_file.write(json.dumps(account_message))
-        except Exception as e:
-            raise ValueError(f"Failed setting balance for {address}: {e}")
-        break
-    return True
 
 
 def unindex_transaction(transaction):
@@ -244,24 +209,6 @@ def index_transaction(transaction, block_hash):
             json.dump("", tx_file)
 
 
-def create_account(address, balance=0):
-    """create account if it does not exist"""
-    account_path = f"accounts/{address}/balance.dat"
-    if not os.path.exists(account_path):
-        os.makedirs(f"accounts/{address}")
-
-        account = {
-            "account_balance": balance,
-            "account_address": address,
-        }
-
-        with open(account_path, "w") as outfile:
-            json.dump(account, outfile)
-        return account
-    else:
-        return get_account(address)
-
-
 def to_readable_amount(raw_amount: int) -> str:
     return f"{(raw_amount / 1000000000):.10f}"
 
@@ -287,9 +234,9 @@ def get_senders(transaction_pool: list) -> list:
     return sender_pool
 
 
-def validate_single_spending(transaction_pool: list, transaction):
+def validate_single_spending(transaction_pool: dict, transaction):
     """validate spending of a single spender against his transactions in a transaction pool"""
-    transaction_pool.append(transaction)  # future state
+    transaction_pool[transaction["txid"]] = transaction
 
     sender = transaction["sender"]
 
@@ -297,16 +244,16 @@ def validate_single_spending(transaction_pool: list, transaction):
     amount_sum = 0
     fee_sum = 0
 
-    for pool_tx in transaction_pool:
-        if pool_tx["sender"] == sender:
+    for tx in transaction_pool:
+        if tx["sender"] == sender:
             check_balance(
                 account=sender,
-                amount=pool_tx["amount"],
-                fee=pool_tx["fee"],
+                amount=tx["amount"],
+                fee=tx["fee"],
             )
 
-            amount_sum += pool_tx["amount"]
-            fee_sum += pool_tx["fee"]
+            amount_sum += tx["amount"]
+            fee_sum += tx["fee"]
 
             spending = amount_sum + fee_sum
             assert spending <= standing_balance, "Overspending attempt"
@@ -322,16 +269,16 @@ def validate_all_spending(transaction_pool: list):
         amount_sum = 0
         fee_sum = 0
 
-        for pool_tx in transaction_pool:
-            if pool_tx["sender"] == sender:
+        for tx in transaction_pool:
+            if tx["sender"] == sender:
                 check_balance(
                     account=sender,
-                    amount=pool_tx["amount"],
-                    fee=pool_tx["fee"],
+                    amount=tx["amount"],
+                    fee=tx["fee"],
                 )
 
-                amount_sum += pool_tx["amount"]
-                fee_sum += pool_tx["fee"]
+                amount_sum += tx["amount"]
+                fee_sum += tx["fee"]
 
                 spending = amount_sum + fee_sum
                 assert spending <= standing_balance, "Overspending attempt"
@@ -357,10 +304,7 @@ def validate_origin(transaction: dict):
 
     return True
 
-def get_recommneded_fee(target, port):
-    url = f"http://{target}:{port}/get_recommended_fee"
-    result = json.loads(requests.get(url, timeout=3).text)
-    return result['fee']
+
 def create_transaction(sender, recipient, amount, public_key, private_key, timestamp, data, fee):
     """construct transaction, then add txid, then add signature as last"""
     transaction_message = {
@@ -374,12 +318,13 @@ def create_transaction(sender, recipient, amount, public_key, private_key, times
         "public_key": public_key,
     }
     txid = create_txid(transaction_message)
-    transaction_message.update(txid=txid)
 
-    signature = sign(private_key=private_key, message=json.dumps(transaction_message))
-    transaction_message.update(signature=signature)
+    transaction = {txid: transaction_message}
 
-    return transaction_message
+    signature = sign(private_key=private_key, message=msgpack.packb(transaction))
+    transaction[txid].update(signature=signature)
+
+    return transaction
 
 
 if __name__ == "__main__":
@@ -426,7 +371,7 @@ if __name__ == "__main__":
             print(transaction)
             print(validate_transaction(transaction, logger=logger))
 
-            requests.get(f"http://{ip}:{port}/submit_transaction?data={json.dumps(transaction)}", timeout=30)
+            requests.get(f"http://{ip}:{port}/submit_transaction?data={msgpack.packb(transaction)}", timeout=30)
         except Exception as e:
             print(e)
 

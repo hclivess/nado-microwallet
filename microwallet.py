@@ -40,7 +40,7 @@ class Wallet:
         self.target = random.choice(load_ips())
         self.port = get_port()
         try:
-            url = f"http://{self.target}:{self.port}/status"
+            url = f"http://{self.target}:{self.port}/status?compress=msgpack"
             requests.get(url, timeout=3)
             self.connected = True
             connection_label.set_text("Reconnected")
@@ -82,16 +82,17 @@ class Wallet:
 
         print(transaction)
         try:
-            url = f"http://{self.target}:{self.port}/submit_transaction?data={msgpack.packb(transaction)}"
-            result = json.loads(requests.get(url, timeout=3).text)
-            status_label.set_text(f"{result['message']}")
+            url = f"http://{self.target}:{self.port}/submit_transaction?data={msgpack.packb(transaction)}&compress=msgpack"
+            result = requests.get(url, timeout=3).content
+            result_decoded = msgpack.unpackb(result)
+            print(result_decoded)
+            status_label.set_text(result_decoded)
             self.refresh_counter = 10
 
         except Exception as e:
             print(f"Could not connect to submit transaction: {e}")
             connection_label.set_text("Disconnected")
             self.connected = False
-
 def exit_app():
     refresh.quit = True
     app.quit()
