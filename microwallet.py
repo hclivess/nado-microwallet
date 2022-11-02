@@ -28,10 +28,14 @@ def insert_clipboard(where):
 
 class Wallet:
     def __init__(self):
-        self.target = random.choice(load_ips())
+        self.target = None
         self.port = get_port()
-        self.connected = True
+        self.connected = False
         self.refresh_counter = 10
+
+    def init_connect(self):
+        self.target = random.choice(load_ips())
+        self.connected = True
     def reconnect(self):
         self.target = random.choice(load_ips())
         self.port = get_port()
@@ -102,14 +106,16 @@ class RefreshClient(threading.Thread):
     def run(self):
         while not self.quit:
 
-            wallet.get_balance()
-            try:
-                init_fee.set(get_recommneded_fee(target=wallet.target,
-                                                 port=wallet.port))
-            except Exception as e:
-                print(f"Could not obtain fee: {e}")
+            if wallet.target:
+                wallet.get_balance()
 
-            if not wallet.connected:
+                try:
+                    init_fee.set(get_recommneded_fee(target=wallet.target,
+                                                     port=wallet.port))
+                except Exception as e:
+                    print(f"Could not obtain fee: {e}")
+
+            if not wallet.connected and wallet.target:
                 wallet.reconnect()
             time.sleep(1)
 
@@ -194,6 +200,9 @@ if __name__ == "__main__":
     wallet = Wallet()
     refresh = RefreshClient(wallet=wallet)
     refresh.start()
+
+    connection_label.set_text("Attempting to connect")
+    app.after(250, lambda: wallet.init_connect())
     app.mainloop()
 
 
