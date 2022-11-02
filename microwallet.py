@@ -83,7 +83,7 @@ class Wallet:
         try:
             url = f"http://{self.target}:{self.port}/submit_transaction?data={json.dumps(transaction)}"
             result = requests.get(url, timeout=3).content
-            result_decoded = json.loads(result)["message"]
+            result_decoded = msgpack.unpackb(result)["message"]
             status_label.set_text(result_decoded)
             self.refresh_counter = 10
 

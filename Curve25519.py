@@ -1,5 +1,6 @@
 import json
 
+import msgpack
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PrivateKey,
@@ -52,7 +53,7 @@ def generate_keydict():
 
 if __name__ == "__main__":
     keydict = generate_keydict()
-    test_message = json.dumps({"amount": 50})
+    test_message = msgpack.packb({"amount": 50})
     print(keydict["private_key"])
     print(keydict["public_key"])
     print(keydict["address"])

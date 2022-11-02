@@ -26,6 +26,7 @@ def get_recommneded_fee(target, port):
     url = f"http://{target}:{port}/get_recommended_fee"
     result = json.loads(requests.get(url, timeout=3).text)
     return result['fee']
+
 def get_transaction(txid, logger):
     """return transaction based on txid"""
     transaction_path = f"transactions/{txid}.dat"
@@ -234,9 +235,9 @@ def get_senders(transaction_pool: list) -> list:
     return sender_pool
 
 
-def validate_single_spending(transaction_pool: dict, transaction):
+def validate_single_spending(transaction_pool: list, transaction):
     """validate spending of a single spender against his transactions in a transaction pool"""
-    transaction_pool[transaction["txid"]] = transaction
+    transaction_pool.append(transaction)  # future state
 
     sender = transaction["sender"]
 
@@ -244,16 +245,16 @@ def validate_single_spending(transaction_pool: dict, transaction):
     amount_sum = 0
     fee_sum = 0
 
-    for tx in transaction_pool:
-        if tx["sender"] == sender:
+    for pool_tx in transaction_pool:
+        if pool_tx["sender"] == sender:
             check_balance(
                 account=sender,
-                amount=tx["amount"],
-                fee=tx["fee"],
+                amount=pool_tx["amount"],
+                fee=pool_tx["fee"],
             )
 
-            amount_sum += tx["amount"]
-            fee_sum += tx["fee"]
+            amount_sum += pool_tx["amount"]
+            fee_sum += pool_tx["fee"]
 
             spending = amount_sum + fee_sum
             assert spending <= standing_balance, "Overspending attempt"
@@ -269,16 +270,16 @@ def validate_all_spending(transaction_pool: list):
         amount_sum = 0
         fee_sum = 0
 
-        for tx in transaction_pool:
-            if tx["sender"] == sender:
+        for pool_tx in transaction_pool:
+            if pool_tx["sender"] == sender:
                 check_balance(
                     account=sender,
-                    amount=tx["amount"],
-                    fee=tx["fee"],
+                    amount=pool_tx["amount"],
+                    fee=pool_tx["fee"],
                 )
 
-                amount_sum += tx["amount"]
-                fee_sum += tx["fee"]
+                amount_sum += pool_tx["amount"]
+                fee_sum += pool_tx["fee"]
 
                 spending = amount_sum + fee_sum
                 assert spending <= standing_balance, "Overspending attempt"
@@ -318,13 +319,12 @@ def create_transaction(sender, recipient, amount, public_key, private_key, times
         "public_key": public_key,
     }
     txid = create_txid(transaction_message)
+    transaction_message.update(txid=txid)
 
-    transaction = {txid: transaction_message}
+    signature = sign(private_key=private_key, message=msgpack.packb(transaction_message))
+    transaction_message.update(signature=signature)
 
-    signature = sign(private_key=private_key, message=msgpack.packb(transaction))
-    transaction[txid].update(signature=signature)
-
-    return transaction
+    return transaction_message
 
 
 if __name__ == "__main__":
@@ -371,7 +371,7 @@ if __name__ == "__main__":
             print(transaction)
             print(validate_transaction(transaction, logger=logger))
 
-            requests.get(f"http://{ip}:{port}/submit_transaction?data={msgpack.packb(transaction)}", timeout=30)
+            requests.get(f"http://{ip}:{port}/submit_transaction?data={json.dumps(transaction)}", timeout=30)
         except Exception as e:
             print(e)
 
