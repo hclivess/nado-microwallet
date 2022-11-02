@@ -16,7 +16,6 @@ from transaction_ops import create_transaction, to_readable_amount, to_raw_amoun
 from dircheck import make_folder
 
 
-
 def address_copy():
     app.clipboard_clear()
     app.clipboard_append(address)
@@ -27,32 +26,27 @@ def insert_clipboard(where):
     where.insert(customtkinter.INSERT, app.clipboard_get())
 
 
-
-
 class Wallet:
     def __init__(self):
         self.target = random.choice(load_ips())
         self.port = get_port()
         self.connected = True
         self.refresh_counter = 10
-
     def reconnect(self):
         self.target = random.choice(load_ips())
         self.port = get_port()
         try:
-            url = f"http://{self.target}:{self.port}/status?compress=msgpack"
-            requests.get(url, timeout=3)
+            url = f"http://{self.target}:{self.port}/status"
+            requests.get(url, timeout=1)
             self.connected = True
             connection_label.set_text("Reconnected")
         except Exception as e:
             print(f"Failed to reconnect: {e}")
 
-
-
     def get_balance(self):
         try:
             url = f"http://{self.target}:{self.port}/get_account?address={address}"
-            balance_raw = requests.get(url, timeout=3)
+            balance_raw = requests.get(url, timeout=1)
             if balance_raw.status_code != 200:
                 balance = 0
             else:
@@ -82,7 +76,7 @@ class Wallet:
 
         try:
             url = f"http://{self.target}:{self.port}/submit_transaction?data={json.dumps(transaction)}"
-            result = requests.get(url, timeout=3).content
+            result = requests.get(url, timeout=1).content
             result_decoded = msgpack.unpackb(result)["message"]
             status_label.set_text(result_decoded)
             self.refresh_counter = 10
@@ -92,6 +86,8 @@ class Wallet:
             connection_label.set_text("Disconnected")
             self.connected = False
             raise
+
+
 def exit_app():
     refresh.quit = True
     app.quit()
@@ -105,9 +101,13 @@ class RefreshClient(threading.Thread):
 
     def run(self):
         while not self.quit:
+
             wallet.get_balance()
-            init_fee.set(get_recommneded_fee(target=wallet.target,
-                                             port=wallet.port))
+            try:
+                init_fee.set(get_recommneded_fee(target=wallet.target,
+                                                 port=wallet.port))
+            except Exception as e:
+                print(f"Could not obtain fee: {e}")
 
             if not wallet.connected:
                 wallet.reconnect()
@@ -195,3 +195,5 @@ if __name__ == "__main__":
     refresh = RefreshClient(wallet=wallet)
     refresh.start()
     app.mainloop()
+
+
