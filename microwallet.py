@@ -34,18 +34,21 @@ class Wallet:
         self.refresh_counter = 10
 
     def init_connect(self):
-        self.target = random.choice(load_ips())
-        self.connected = True
-    def reconnect(self):
-        self.target = random.choice(load_ips())
-        self.port = get_port()
-        try:
-            url = f"http://{self.target}:{self.port}/status"
-            requests.get(url, timeout=1)
+        servers = load_ips()
+        if servers:
+            self.target = random.choice(load_ips())
             self.connected = True
-            connection_label.set_text("Reconnected")
-        except Exception as e:
-            print(f"Failed to reconnect: {e}")
+        else:
+            connection_label.set_text("Failed to connect")
+    def reconnect(self):
+        servers = load_ips()
+        if servers:
+            self.target = random.choice(load_ips())
+            self.connected = True
+        else:
+            connection_label.set_text("Failed to connect")
+
+        self.port = get_port()
 
     def get_balance(self):
         try:
