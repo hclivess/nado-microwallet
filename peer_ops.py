@@ -35,11 +35,10 @@ def update_local_address(logger, peer_file_lock):
                     value=new_address)
         logger.info(f"Local address updated to {new_address}")
 
-
 def get_remote_peer_address(target_peer, logger) -> bool:
     try:
         url = f"http://{target_peer}:{get_port()}/status"
-        result = requests.get(url=url, timeout=3)
+        result = requests.get(url=url, timeout=10)
         text = result.text
         code = result.status_code
 
@@ -56,7 +55,7 @@ def get_remote_peer_address(target_peer, logger) -> bool:
 def get_reported_uptime(target_peer, logger) -> int:
     try:
         url = f"http://{target_peer}:{get_port()}/status"
-        result = requests.get(url=url, timeout=3)
+        result = requests.get(url=url, timeout=10)
 
         text = result.text
         code = result.status_code
@@ -143,13 +142,13 @@ def adjust_trust(trust_pool, entry, value, logger, peer_file_lock):
 def is_online(peer_ip):
     url = f"http://{peer_ip}:{get_config()['port']}/status"
     try:
-        requests.get(url, timeout=0.1)
+        requests.get(url, timeout=1)
         return True
     except Exception as e:
         return False
 
 
-def load_ips(limit=8, tries=5) -> list:
+def load_ips(limit=8) -> list:
     """load ips from drive"""
 
     peer_files = glob.glob("peers/*.dat")
@@ -158,13 +157,14 @@ def load_ips(limit=8, tries=5) -> list:
 
     ip_pool = []
 
-    while len(ip_pool) < limit and tries > 0:
-        tries -= 1
-        for file in peer_files:
+    for file in peer_files:
+        if len(ip_pool) < limit:
             with open(file, "r") as peer_file:
                 peer = json.load(peer_file)
                 if is_online(peer["peer_ip"]):
                     ip_pool.append(peer["peer_ip"])
+        else:
+            break
 
     return ip_pool
 
@@ -247,7 +247,7 @@ def dump_peers(peers, logger):
 def get_list_of_peers(fetch_from, failed, logger) -> list:
     """gets peers of peers"""
     returned_peers = asyncio.run(
-        compound_get_list_of("peers", fetch_from, logger=logger, fail_storage=failed)
+        compound_get_list_of("peers", fetch_from, logger=logger, fail_storage=failed, compress="msgpack")
     )
 
     pool = []
