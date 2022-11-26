@@ -1,2 +1,2 @@
-python -m nuitka linewallet.py --follow-imports
+python -m nuitka linewallet.py --onefile --windows-icon-from-ico=graphics\icon.ico
 pause
