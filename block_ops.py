@@ -4,13 +4,13 @@ import os
 import requests
 
 from config import get_timestamp_seconds, get_config
-from data_ops import set_and_sort, average
+from data_ops import set_and_sort, average, get_home
 from hashing import blake2b_hash_link
 from keys import load_keys
 from log_ops import get_logger
 from peer_ops import load_peer
 from account_ops import get_account_value
-
+import msgpack
 
 def check_block_structure():
     """check timestamp, etc if syncing blocks from others"""
@@ -112,17 +112,17 @@ def get_transaction_pool_demo():
     config = get_config()
     ip = config["ip"]
     port = config["port"]
-    tx_pool_message = requests.get(f"http://{ip}:{port}/transaction_pool", timeout=3).text
-    tx_pool_dict = json.loads(tx_pool_message)["transaction_pool"]
+    tx_pool_message = requests.get(f"http://{ip}:{port}/transaction_pool?compress=msgpack", timeout=5).text
+    tx_pool_dict = msgpack.unpackb(tx_pool_message)
     return tx_pool_dict
 
 
 def get_block(block):
     """return transaction based on txid"""
-    block_path = f"blocks/{block}.block"
+    block_path = f"{get_home()}/blocks/{block}.block"
     if os.path.exists(block_path):
-        with open(block_path, "r") as file:
-            block = json.load(file)
+        with open(block_path, "rb") as file:
+            block = msgpack.load(file)
         return block
     else:
         return None
@@ -133,21 +133,21 @@ def get_block_producers_hash_demo():
     config = get_config()
     ip = config["ip"]
     port = config["port"]
-    status_message = requests.get(f"http://{ip}:{port}/status", timeout=3).text
+    status_message = requests.get(f"http://{ip}:{port}/status", timeout=5).text
     block_producers_hash = json.loads(status_message)["block_producers_hash"]
     return block_producers_hash
 
 
 def load_block(block_hash: str, logger):
     try:
-        with open(f"blocks/{block_hash}.block", "r") as infile:
-            return json.load(infile)
+        with open(f"{get_home()}/blocks/{block_hash}.block", "rb") as infile:
+            return msgpack.unpack(infile)
     except Exception as e:
         logger.info(f"Failed to load block {block_hash}: {e}")
 
 
 def load_block_producers() -> list:
-    block_producers_path = "index/block_producers.dat"
+    block_producers_path = f"{get_home()}/index/block_producers.dat"
     if os.path.exists(block_producers_path):
         with open(block_producers_path, "r") as infile:
             return json.load(infile)
@@ -156,7 +156,7 @@ def load_block_producers() -> list:
 
 
 def save_block_producers(block_producers: list):
-    block_producers_path = "index/block_producers.dat"
+    block_producers_path = f"{get_home()}/index/block_producers.dat"
     with open(block_producers_path, "w") as outfile:
         json.dump(set_and_sort(block_producers), outfile)
     return True
@@ -165,8 +165,8 @@ def save_block_producers(block_producers: list):
 def save_block(block_message: dict, logger):
     try:
         block_hash = block_message["block_hash"]
-        with open(f"blocks/{block_hash}.block", "w") as outfile:
-            json.dump(block_message, outfile)
+        with open(f"{get_home()}/blocks/{block_hash}.block", "wb") as outfile:
+            msgpack.pack(block_message, outfile)
         return True
     except Exception as e:
         logger.warning(f"Failed to save block {block_message['block_hash']} due to {e}")
@@ -181,23 +181,23 @@ def latest_block_divisible_by(divisor, logger):
 
 def get_latest_block_info(logger):
     try:
-        with open("index/latest_block.dat", "r") as infile:
-            info = load_block(block_hash=json.load(infile), logger=logger)
+        with open(f"{get_home()}/index/latest_block.dat", "r") as infile:
+            info = load_block(block_hash=json.load(infile),
+                              logger=logger)
             return info
     except Exception as e:
         logger.info("Failed to get latest block info")
 
 
-def set_latest_block_info(block_message: dict):
+def set_latest_block_info(block_message: dict, logger):
     try:
-        with open("index/latest_block.dat", "w") as outfile:
+        with open(f"{get_home()}/index/latest_block.dat", "w") as outfile:
             json.dump(block_message["block_hash"], outfile)
 
-        with open(
-                f"blocks/block_numbers/{block_message['block_number']}.dat", "w"
-        ) as outfile:
+        with open(f"{get_home()}/blocks/block_numbers/{block_message['block_number']}.dat", "w") as outfile:
             json.dump(block_message["block_hash"], outfile)
-        with open(f"blocks/block_numbers/index.dat", "w") as outfile:
+
+        with open(f"{get_home()}/blocks/block_numbers/index.dat", "w") as outfile:
             json.dump({"last_number": block_message["block_number"]}, outfile)
         return True
 
@@ -245,7 +245,7 @@ def construct_block(
 def knows_block(target_peer, hash, logger):
     try:
         url = f"http://{target_peer}:{get_config()['port']}/get_block?hash={hash}"
-        if requests.get(url, timeout=3).status_code == 200:
+        if requests.get(url, timeout=5).status_code == 200:
             return True
         else:
             return False
@@ -263,29 +263,33 @@ def update_child_in_latest_block(child_hash, logger):
     return True
 
 
-def get_blocks_after(target_peer, from_hash, logger, count=50):
-    try:
-        url = f"http://{target_peer}:{get_config()['port']}/get_blocks_after?hash={from_hash}&count={count}"
-        result = requests.get(url, timeout=3)
-        text = result.text
-        code = result.status_code
-        if code == 200:
-            return json.loads(text)["blocks_after"]
-        else:
-            return False
+def get_blocks_after(target_peer, from_hash, count=50, compress="msgpack"):
 
-    except Exception as e:
-        logger.error(f"Failed to get blocks after {from_hash} from {target_peer}: {e}")
+    url = f"http://{target_peer}:{get_config()['port']}/get_blocks_after?hash={from_hash}&count={count}&compress={compress}"
+    result = requests.get(url, timeout=5)
+    code = result.status_code
+
+    if code == 200 and compress == "msgpack":
+        read = result.content
+        return msgpack.unpackb(read)
+    elif code == 200:
+        text = result.text
+        return json.loads(text)["blocks_after"]
+    else:
         return False
 
 
-def get_blocks_before(target_peer, from_hash, logger, count=50):
+def get_blocks_before(target_peer, from_hash, count=50, compress="true"):
     try:
-        url = f"http://{target_peer}:{get_config()['port']}/get_blocks_before?hash={from_hash}&count={count}"
-        result = requests.get(url, timeout=3)
-        text = result.text
+        url = f"http://{target_peer}:{get_config()['port']}/get_blocks_before?hash={from_hash}&count={count}&compress={compress}"
+        result = requests.get(url, timeout=5)
         code = result.status_code
-        if code == 200:
+
+        if code == 200 and compress == "msgpack":
+            read = result.content
+            return msgpack.unpackb(read)
+        elif code == 200:
+            text = result.text
             return json.loads(text)["blocks_before"]
         else:
             return False
@@ -297,24 +301,19 @@ def get_blocks_before(target_peer, from_hash, logger, count=50):
 
 def get_from_single_target(key, target_peer, logger):
     """obtain from a single target"""
-    retries = 10
 
-    while retries > 0:
-        try:
-            url = f"http://{target_peer}:{get_config()['port']}/{key}"
-            result = requests.get(url, timeout=3)
-            text = result.text
-            code = result.status_code
+    try:
+        url = f"http://{target_peer}:{get_config()['port']}/{key}"
+        result = requests.get(url, timeout=5)
+        text = result.text
+        code = result.status_code
 
-            if code == 200:
-                return json.loads(text)[key]
-            else:
-                return False
+        if code == 200:
+            return json.loads(text)[key]
+        else:
+            return False
 
-        except Exception as e:
-            retries -= 1
-
-    if retries < 1:
+    except Exception as e:
         logger.error(f"Failed to get block producers from {target_peer}")
         return False
 
@@ -379,11 +378,9 @@ if __name__ == "__main__":
             block_reward=get_block_reward(logger=logger),
         )
 
-        print(block_message)
-
         """submit as block candidate"""
         config = get_config()
         ip = config["ip"]
         port = config["port"]
         server_key = config["server_key"]
-        requests.get(f"http://{ip}:{port}/submit_block?data={json.dumps(block_message)}&key={server_key}", timeout=3)
+        requests.get(f"http://{ip}:{port}/submit_block?data={json.dumps(block_message)}&key={server_key}", timeout=5)

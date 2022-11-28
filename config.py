@@ -1,13 +1,13 @@
 import json
 import os
 import time
-
+from data_ops import get_home
 import requests
 
 from hashing import create_nonce
 
 
-def config_found(file="private/config.dat"):
+def config_found(file=f"{get_home()}/private/config.dat"):
     if os.path.isfile(file):
         return True
     else:
@@ -31,16 +31,16 @@ def get_port():
 
 
 def get_public_ip():
-    ip = requests.get("https://api.ipify.org", timeout=3).text
+    ip = requests.get("https://api.ipify.org", timeout=5).text
     return ip
 
 
-def get_config(config_path: str = "private/config.dat"):
+def get_config(config_path: str = f"{get_home()}/private/config.dat"):
     with open(config_path) as infile:
         return json.loads(infile.read())
 
 
-def create_config(config_path: str = "private/config.dat"):
+def create_config(config_path: str = f"{get_home()}/private/config.dat"):
     config_contents = {
         "port": get_port(),
         "ip": get_public_ip(),
