@@ -14,6 +14,7 @@ from log_ops import get_logger
 from peer_ops import load_ips
 from transaction_ops import create_transaction, to_readable_amount, to_raw_amount, get_recommneded_fee
 from dircheck import make_folder
+from data_ops import get_home
 
 
 def address_copy():
@@ -124,9 +125,9 @@ class RefreshClient(threading.Thread):
 
 
 if __name__ == "__main__":
-    logger = get_logger(file="wallet.log")
+    logger = get_logger(file=f"wallet.log")
 
-    make_folder("private", strict=False)
+    make_folder(f"{get_home()}/private", strict=False)
     if not config_found():
         create_config()
     if not keyfile_found():

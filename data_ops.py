@@ -4,12 +4,16 @@ import os
 import re
 from pathlib import Path
 
+
 def get_home():
     return f"{Path.home()}/nado"
+
+
 def check_traversal(to_check):
     allowed = "^\w+$"
     if not re.search(allowed, to_check):
         raise ValueError(f"Traversal attack attempt with [{to_check}]")
+
 
 def dict_to_val_list(some_dict) -> list:
     return_list = []
