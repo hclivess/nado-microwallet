@@ -12,24 +12,25 @@ from address import validate_address
 from block_ops import load_block
 from config import get_config
 from config import get_timestamp_seconds
-from data_ops import sort_list_dict
+from data_ops import sort_list_dict, get_home
 from hashing import create_nonce, blake2b_hash
 from keys import load_keys
 from log_ops import get_logger
 from account_ops import get_account, reflect_transaction
+from tornado.httpclient import AsyncHTTPClient
 
 
-def calculate_fee():
-    return 1
-
-def get_recommneded_fee(target, port):
+async def get_recommneded_fee(target, port):
+    http_client = AsyncHTTPClient()
     url = f"http://{target}:{port}/get_recommended_fee"
-    result = json.loads(requests.get(url, timeout=3).text)
+    response = await http_client.fetch(url)
+    result = json.loads(response.body.decode())
     return result['fee']
+
 
 def get_transaction(txid, logger):
     """return transaction based on txid"""
-    transaction_path = f"transactions/{txid}.dat"
+    transaction_path = f"{get_home()}/transactions/{txid}.dat"
     if os.path.exists(transaction_path):
         with open(transaction_path, "r") as file:
             block_hash = json.load(file)
@@ -81,37 +82,35 @@ def sort_transaction_pool(transactions: list, key="txid") -> list:
     )
 
 
-
-
-
 def unindex_transaction(transaction):
-    tx_path = f"transactions/{transaction['txid']}.dat"
+    tx_path = f"{get_home()}/transactions/{transaction['txid']}.dat"
 
     sender_address = transaction['sender']
+    sender_index = get_tx_index_number(sender_address)
+
     if tx_index_empty(sender_address):
         update_tx_index_folder(sender_address, get_tx_index_number(sender_address) - 1)
-    index_number = get_tx_index_number(sender_address)
 
-    sender_path = f"accounts/{transaction['sender']}/transactions/{index_number}/{transaction['txid']}.lin"
+    sender_path = f"{get_home()}/accounts/{transaction['sender']}/transactions/{sender_index}/{transaction['txid']}.lin"
     while not os.path.exists(sender_path):
-        index_number -= 1
-        sender_path = f"accounts/{transaction['sender']}/transactions/{index_number}/{transaction['txid']}.lin"
-        if index_number < 0:
-            raise ValueError(f"Transaction {transaction['txid']} rollback index seeking below zero")
+        sender_index -= 1
+        sender_path = f"{get_home()}/accounts/{transaction['sender']}/transactions/{sender_index}/{transaction['txid']}.lin"
+        if sender_index < 0:
+            raise ValueError(f"Sender transaction {sender_path} rollback index seeking below zero")
 
-    recipient_address = transaction['sender']
+    recipient_address = transaction['recipient']
+    recipient_index = get_tx_index_number(recipient_address)
+
     if tx_index_empty(recipient_address):
         update_tx_index_folder(recipient_address, get_tx_index_number(recipient_address) - 1)
-    index_number = get_tx_index_number(recipient_address)
 
-    recipient_path = f"accounts/{transaction['recipient']}/transactions/{index_number}/{transaction['txid']}.lin"
-
+    recipient_path = f"{get_home()}/accounts/{transaction['recipient']}/transactions/{recipient_index}/{transaction['txid']}.lin"
     if sender_path != recipient_path:
         while not os.path.exists(recipient_path):
-            index_number -= 1
-            recipient_path = f"accounts/{transaction['recipient']}/transactions/{index_number}/{transaction['txid']}.lin"
-            if index_number < 0:
-                raise ValueError(f"Transaction {transaction['txid']} rollback index seeking below zero")
+            recipient_index -= 1
+            recipient_path = f"{get_home()}/accounts/{transaction['recipient']}/transactions/{recipient_index}/{transaction['txid']}.lin"
+            if recipient_index < 0:
+                raise ValueError(f"Recipient transaction {recipient_path} rollback index seeking below zero")
 
     while True:
         try:
@@ -128,7 +127,7 @@ def get_transactions_of_account(account, logger, batch):
     if batch == "max":
         batch = get_tx_index_number(account)
 
-    account_path = f"accounts/{account}/transactions/{batch}"
+    account_path = f"{get_home()}/accounts/{account}/transactions/{batch}"
     transaction_files = glob.glob(f"{account_path}/*.lin")
     tx_list = []
 
@@ -141,14 +140,14 @@ def get_transactions_of_account(account, logger, batch):
 
 
 def update_tx_index_folder(address, number):
-    tx_index = f"accounts/{address}/index.dat"
+    tx_index = f"{get_home()}/accounts/{address}/index.dat"
     index = {"index_folder": number}
     with open(tx_index, "w") as outfile:
         json.dump(index, outfile)
 
 
 def create_tx_indexer(address):
-    tx_index = f"accounts/{address}/index.dat"
+    tx_index = f"{get_home()}/accounts/{address}/index.dat"
     if not os.path.exists(tx_index):
         index = {"index_folder": 0}
         with open(tx_index, "w") as outfile:
@@ -156,7 +155,7 @@ def create_tx_indexer(address):
 
 
 def get_tx_index_number(address):
-    tx_index = f"accounts/{address}/index.dat"
+    tx_index = f"{get_home()}/accounts/{address}/index.dat"
     with open(tx_index, "r") as infile:
         index_number = json.load(infile)["index_folder"]
     return index_number
@@ -164,9 +163,9 @@ def get_tx_index_number(address):
 
 def tx_index_empty(address):
     index_number = get_tx_index_number(address)
-    transaction_files = glob.glob(f"accounts/{address}/transactions/{index_number}/*.lin")
+    transaction_files = glob.glob(f"{get_home()}/accounts/{address}/transactions/{index_number}/*.lin")
     if len(transaction_files) == 0:
-        os.rmdir(f"accounts/{address}/transactions/{index_number}")
+        os.rmdir(f"{get_home()}/accounts/{address}/transactions/{index_number}")
         return True
     else:
         return False
@@ -174,7 +173,7 @@ def tx_index_empty(address):
 
 def tx_index_full(address, full=500):
     index_number = get_tx_index_number(address)
-    transaction_files = glob.glob(f"accounts/{address}/transactions/{index_number}/*.lin")
+    transaction_files = glob.glob(f"{get_home()}/accounts/{address}/transactions/{index_number}/*.lin")
     if len(transaction_files) >= full:
         return True
     else:
@@ -182,7 +181,7 @@ def tx_index_full(address, full=500):
 
 
 def index_transaction(transaction, block_hash):
-    tx_path = f"transactions/{transaction['txid']}.dat"
+    tx_path = f"{get_home()}/transactions/{transaction['txid']}.dat"
     with open(tx_path, "w") as tx_file:
         tx_file.write(json.dumps(block_hash))
 
@@ -191,7 +190,7 @@ def index_transaction(transaction, block_hash):
     if tx_index_full(sender_address):
         update_tx_index_folder(sender_address, get_tx_index_number(sender_address) + 1)
     index_number = get_tx_index_number(sender_address)
-    sender_path = f"accounts/{sender_address}/transactions/{index_number}"
+    sender_path = f"{get_home()}/accounts/{sender_address}/transactions/{index_number}"
     if not os.path.exists(sender_path):
         os.makedirs(sender_path)
     with open(f"{sender_path}/{transaction['txid']}.lin", "w") as tx_file:
@@ -203,7 +202,7 @@ def index_transaction(transaction, block_hash):
         if tx_index_full(recipient_address):
             update_tx_index_folder(recipient_address, get_tx_index_number(recipient_address) + 1)
         index_number = get_tx_index_number(recipient_address)
-        recipient_path = f"accounts/{recipient_address}/transactions/{index_number}"
+        recipient_path = f"{get_home()}/accounts/{recipient_address}/transactions/{index_number}"
         if not os.path.exists(recipient_path):
             os.makedirs(recipient_path)
         with open(f"{recipient_path}/{transaction['txid']}.lin", "w") as tx_file:
@@ -299,7 +298,7 @@ def validate_origin(transaction: dict):
 
     assert verify(
         signed=signature,
-        message=json.dumps(transaction),
+        message=msgpack.packb(transaction),
         public_key=transaction["public_key"],
     ), "Invalid sender"
 
@@ -343,11 +342,12 @@ if __name__ == "__main__":
     recipient = "ndo6a7a7a6d26040d8d53ce66343a47347c9b79e814c66e29"
     private_key = key_dict["private_key"]
     public_key = key_dict["public_key"]
-    amount = to_raw_amount(0.1)
+    amount = to_raw_amount(0)
     data = {"data_id": "seek_id", "data_content": "some_actual_content"}
 
     config = get_config()
-    ip = config["ip"]
+    #ip = config["ip"]
+    ip = "159.65.123.12"
     port = config["port"]
 
     create_tx_indexer(address)
@@ -364,15 +364,17 @@ if __name__ == "__main__":
                 data=data,
                 public_key=public_key,
                 timestamp=get_timestamp_seconds(),
-                fee=calculate_fee(),
+                fee=0,
                 private_key=private_key
             )
 
             print(transaction)
             print(validate_transaction(transaction, logger=logger))
 
-            requests.get(f"http://{ip}:{port}/submit_transaction?data={json.dumps(transaction)}", timeout=30)
+            requests.get(f"http://{ip}:{port}/submit_transaction?data={json.dumps(transaction)}", timeout=5)
+
+            time.sleep(5)
         except Exception as e:
             print(e)
 
-    # tx_pool = json.loads(requests.get(f"http://{ip}:{port}/transaction_pool").text, timeout=30)
+    # tx_pool = json.loads(requests.get(f"http://{ip}:{port}/transaction_pool").text, timeout=5)
