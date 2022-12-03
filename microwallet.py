@@ -1,5 +1,6 @@
 import json
 import os.path
+import asyncio
 import random
 import threading
 import time
@@ -11,7 +12,7 @@ import requests
 from config import get_timestamp_seconds, get_port, create_config, config_found
 from keys import load_keys, keyfile_found, save_keys, generate_keys
 from log_ops import get_logger
-from peer_ops import load_ips
+from peer_ops import load_ips, is_online
 from transaction_ops import create_transaction, to_readable_amount, to_raw_amount, get_recommneded_fee
 from dircheck import make_folder
 from data_ops import get_home
@@ -35,16 +36,21 @@ class Wallet:
         self.refresh_counter = 10
 
     def init_connect(self):
-        servers = load_ips()
+
+        if asyncio.run(is_online("127.0.0.1")):
+            servers = ["127.0.0.1"]
+        else:
+            servers = load_ips()
+
         if servers:
-            self.target = random.choice(load_ips())
+            self.target = random.choice(servers)
             self.connected = True
         else:
             connection_label.set_text("Failed to connect")
     def reconnect(self):
         servers = load_ips()
         if servers:
-            self.target = random.choice(load_ips())
+            self.target = random.choice(servers)
             self.connected = True
         else:
             connection_label.set_text("Failed to connect")
