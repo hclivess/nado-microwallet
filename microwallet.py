@@ -37,7 +37,7 @@ class Wallet:
 
     def init_connect(self):
 
-        if asyncio.run(is_online("127.0.0.1")):
+        if is_online("127.0.0.1"):
             servers = ["127.0.0.1"]
         else:
             servers = load_ips()
