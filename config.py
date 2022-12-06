@@ -1,9 +1,11 @@
+import asyncio
 import json
 import os
 import time
-from data_ops import get_home
-import requests
 
+from tornado.httpclient import AsyncHTTPClient
+
+from data_ops import get_home
 from hashing import create_nonce
 
 
@@ -23,16 +25,18 @@ def get_timestamp_seconds():
 
 
 def get_protcol():
-    return 1
+    return 2
 
 
 def get_port():
     return 9173
 
 
-def get_public_ip():
-    ip = requests.get("https://api.ipify.org", timeout=5).text
-    return ip
+async def get_public_ip():
+    http_client = AsyncHTTPClient()
+    url = "https://api.ipify.org"
+    ip = await http_client.fetch(url)
+    return ip.body.decode()
 
 
 def get_config(config_path: str = f"{get_home()}/private/config.dat"):
@@ -40,10 +44,19 @@ def get_config(config_path: str = f"{get_home()}/private/config.dat"):
         return json.loads(infile.read())
 
 
+def update_config(new_config: dict, config_path: str = f"{get_home()}/private/config.dat"):
+    config = get_config()
+    for key, value in new_config.items():
+        config[key] = value
+
+    with open(config_path, "w") as outfile:
+        json.dump(config, outfile)
+
+
 def create_config(config_path: str = f"{get_home()}/private/config.dat"):
     config_contents = {
         "port": get_port(),
-        "ip": get_public_ip(),
+        "ip": asyncio.run(get_public_ip()),
         "protocol": get_protcol(),
         "server_key": create_nonce(length=64),
     }

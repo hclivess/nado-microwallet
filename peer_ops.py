@@ -3,12 +3,36 @@ import glob
 import json
 import os.path
 
+from tornado.httpclient import AsyncHTTPClient
+from compounder import compound_get_status_pool
+
 from compounder import compound_get_list_of, compound_announce_self
 from config import get_port, get_config, get_timestamp_seconds
 from data_ops import set_and_sort, get_home
 from hashing import base64encode, blake2b_hash
 from keys import load_keys
-from tornado.httpclient import HTTPClient
+from config import get_public_ip, update_config
+
+
+def update_local_ip(logger, peer_file_lock):
+    old_ip = get_config()["ip"]
+    new_ip = asyncio.run(get_public_ip())
+
+    if old_ip != new_ip:
+        peer_me = load_peer(ip=old_ip,
+                            logger=logger,
+                            peer_file_lock=peer_file_lock)
+
+        save_peer(ip=new_ip,
+                  address=peer_me["peer_address"],
+                  port=peer_me["peer_port"],
+                  overwrite=True
+                  )
+
+        new_config = {"ip": new_ip}
+        update_config(new_config)
+
+        logger.info(f"Local IP updated to {new_ip}")
 
 
 def validate_dict_structure(dictionary: dict, requirements: list) -> bool:
@@ -22,8 +46,11 @@ def update_local_address(logger, peer_file_lock):
     my_ip = get_config()["ip"]
     old_address = load_peer(logger=logger,
                             ip=my_ip,
-                            peer_file_lock=peer_file_lock)
+                            peer_file_lock=peer_file_lock,
+                            key="peer_address")
+
     new_address = load_keys()["address"]
+
     if new_address != old_address:
         update_peer(ip=my_ip,
                     logger=logger,
@@ -33,11 +60,11 @@ def update_local_address(logger, peer_file_lock):
         logger.info(f"Local address updated to {new_address}")
 
 
-def get_remote_status(target_peer, logger) -> [dict, bool]:  # todo add msgpack support
+async def get_remote_status(target_peer, logger) -> [dict, bool]:  # todo add msgpack support
     try:
-        http_client = HTTPClient()
+        http_client = AsyncHTTPClient()
         url = f"http://{target_peer}:{get_port()}/status"
-        result = http_client.fetch(url)
+        result = await http_client.fetch(url)
         text = result.body.decode()
         code = result.code
 
@@ -89,44 +116,57 @@ def dump_trust(pool_data, logger, peer_file_lock):
                     peer_file_lock=peer_file_lock)
 
 
-def is_online(peer_ip):
-    http_client = HTTPClient()
-    url = f"http://{peer_ip}:{get_config()['port']}/status"
-    try:
-        http_client.fetch(url, connect_timeout=0.1)
-        return True
-    except Exception as e:
-        return False
-
 def sort_dict_value(values, key):
     return sorted(values, key=lambda d: d[key], reverse=True)
 
-def load_ips(limit=24) -> list:
-    """load ips from drive"""
+
+async def load_ips(logger, fail_storage, minimum=3) -> list:
+    """load peers from drive, sort by trust, test in batches asynchronously,
+    return when limit is reached"""
 
     peer_files = glob.glob(f"{get_home()}/peers/*.dat")
 
-    if len(peer_files) < limit:
-        limit = len(peer_files)
+    if len(peer_files) < minimum:
+        minimum = len(peer_files)
 
     candidates = []
-    ip_pool = []
+    status_pool = []
 
     for file in peer_files:
-        if len(ip_pool) < limit:
-            with open(file, "r") as peer_file:
-                peer = json.load(peer_file)
-                candidates.append(peer)
+        with open(file, "r") as peer_file:
+            peer = json.load(peer_file)
+            candidates.append(peer)
 
-            candidates_sorted = sort_dict_value(candidates, key="peer_trust")
+    ip_sorted = []
+    candidates_sorted = sort_dict_value(candidates, key="peer_trust")
 
-            for candidate in candidates_sorted:
-                if is_online(candidate["peer_ip"]):
-                    ip_pool.append(candidate["peer_ip"])
-        else:
+    for entry in candidates_sorted:
+        ip_sorted.append(entry["peer_ip"])
+
+    start = 0
+    end = len(peer_files)
+    step = 12
+
+    for i in range(start, end, step):
+        x = i
+        chunk = ip_sorted[x:x + step]
+        logger.info(f"Testing {chunk}")
+
+        gathered = (await asyncio.gather(compound_get_status_pool(chunk,
+                                                                  fail_storage=fail_storage,
+                                                                  logger=logger,
+                                                                  compress="msgpack")))
+        for entry in gathered:
+            status_pool.extend(list(entry.keys()))
+
+        logger.info(f"Gathered {len(status_pool)}/{minimum} peers in {i + 1} steps, {len(fail_storage)} failed")
+
+        if len(status_pool) > minimum:
             break
 
-    return ip_pool
+    logger.info(f"Loaded {len(status_pool)} reachable peers from drive, {len(fail_storage)} failed")
+
+    return status_pool
 
 
 def load_trust(peer, logger, peer_file_lock):
@@ -136,14 +176,14 @@ def load_trust(peer, logger, peer_file_lock):
                      peer_file_lock=peer_file_lock)
 
 
-def load_peer(logger, ip, peer_file_lock, key=None) -> str:
+def load_peer(logger, ip, peer_file_lock, key=None) -> [str, dict]:
     with peer_file_lock:
         try:
             peer_file = f"{get_home()}/peers/{base64encode(ip)}.dat"
             if not key:
                 with open(peer_file, "r") as peer_file:
-                    peer_key = json.load(peer_file)
-                return peer_key
+                    peer_dict = json.load(peer_file)
+                return peer_dict
             else:
                 with open(peer_file, "r") as peer_file:
                     peer_key = json.load(peer_file)[key]
@@ -195,7 +235,7 @@ def dump_peers(peers, logger):
     """save all peers to drive if new to drive"""
     for peer in peers:
         if not ip_stored(peer):
-            address = get_remote_status(peer, logger=logger)["address"]
+            address = asyncio.run(get_remote_status(peer, logger=logger))["address"]
             if address:
                 save_peer(
                     ip=peer,

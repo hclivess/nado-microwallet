@@ -12,7 +12,7 @@ import requests
 from config import get_timestamp_seconds, get_port, create_config, config_found
 from keys import load_keys, keyfile_found, save_keys, generate_keys
 from log_ops import get_logger
-from peer_ops import load_ips, is_online
+from peer_ops import load_ips
 from transaction_ops import create_transaction, to_readable_amount, to_raw_amount, get_recommneded_fee
 from dircheck import make_folder
 from data_ops import get_home
@@ -35,20 +35,16 @@ class Wallet:
         self.connected = False
         self.refresh_counter = 10
 
-    def init_connect(self):
+    async def init_connect(self):
 
-        if is_online("127.0.0.1"):
-            servers = ["127.0.0.1"]
-        else:
-            servers = load_ips()
+        failed = []
+        servers = await load_ips(fail_storage=failed, logger=logger)
+        self.target = random.choice(servers)
+        self.connected = True
 
-        if servers:
-            self.target = random.choice(servers)
-            self.connected = True
-        else:
-            connection_label.set_text("Failed to connect")
-    def reconnect(self):
-        servers = load_ips()
+    async def reconnect(self):
+        failed = []
+        servers = await load_ips(fail_storage=failed, logger=logger)
         if servers:
             self.target = random.choice(servers)
             self.connected = True
@@ -126,7 +122,7 @@ class RefreshClient(threading.Thread):
                     print(f"Could not obtain fee: {e}")
 
             if not wallet.connected and wallet.target:
-                wallet.reconnect()
+                asyncio.run(wallet.reconnect())
             time.sleep(1)
 
 
@@ -212,7 +208,7 @@ if __name__ == "__main__":
     refresh.start()
 
     connection_label.set_text("Attempting to connect")
-    app.after(250, lambda: wallet.init_connect())
+    app.after(250, lambda: asyncio.run(wallet.init_connect()))
     app.mainloop()
 
 
