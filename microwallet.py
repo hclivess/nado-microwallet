@@ -123,7 +123,7 @@ class RefreshClient(threading.Thread):
 
             if not wallet.connected and wallet.target:
                 asyncio.run(wallet.reconnect())
-            time.sleep(10)
+            time.sleep(30)
 
 
 if __name__ == "__main__":
