@@ -7,6 +7,7 @@ from dircheck import make_folder
 from peer_ops import load_ips
 import json
 import requests
+import asyncio
 from data_ops import get_home
 
 
@@ -32,9 +33,9 @@ def send_transaction(address, recipient, amount, data, public_key, private_key, 
         print(f"Transaction failed: {result_json['message']}")
 
 if __name__ == "__main__":
-    logger = get_logger(file=f"{get_home}/wallet.log")
+    logger = get_logger(file=f"{get_home()}/wallet.log")
 
-    make_folder(f"{get_home}/private", strict=False)
+    make_folder(f"{get_home()}/private", strict=False)
     if not config_found():
         create_config()
     if not keyfile_found():
@@ -44,7 +45,7 @@ if __name__ == "__main__":
     private_key = keydict["private_key"]
     public_key = keydict["public_key"]
     address = keydict["address"]
-    target = random.choice(load_ips())
+    target = random.choice(asyncio.run(load_ips()))
     port = get_port()
 
     print(f"Sending from {address}")
