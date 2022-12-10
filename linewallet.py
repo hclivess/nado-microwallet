@@ -9,6 +9,7 @@ import json
 import requests
 import asyncio
 from data_ops import get_home
+import msgpack
 
 
 def send_transaction(address, recipient, amount, data, public_key, private_key, target, port):
@@ -24,13 +25,12 @@ def send_transaction(address, recipient, amount, data, public_key, private_key, 
 
     print(json.dumps(transaction, indent=4))
     input("Press any key to continue")
-    result = requests.get(f"http://{target}:{port}/submit_transaction?data={json.dumps(transaction)}", timeout=30)
-    result_json = json.loads(result.text)
+    url = f"http://{target}:{port}/submit_transaction?data={json.dumps(transaction)}"
+    result = requests.get(url, timeout=1).content
+    result_decoded = msgpack.unpackb(result)["message"]
 
-    if result_json["result"]:
-        print("Transaction submitted successfully")
-    else:
-        print(f"Transaction failed: {result_json['message']}")
+    print(result_decoded)
+8
 
 if __name__ == "__main__":
     logger = get_logger(file=f"linewallet.log")
