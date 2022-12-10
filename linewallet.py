@@ -12,13 +12,12 @@ from data_ops import get_home
 import msgpack
 
 
-def send_transaction(address, recipient, amount, data, public_key, private_key, target, port):
+def send_transaction(address, recipient, amount, data, public_key, private_key, target, port, fee):
     transaction = create_transaction(sender=address,
                                      recipient=recipient,
                                      amount=to_raw_amount(amount),
                                      data=data,
-                                     fee=get_recommneded_fee(target=target,
-                                                             port=port)+1,
+                                     fee=int(fee),
                                      public_key=public_key,
                                      private_key=private_key,
                                      timestamp=get_timestamp_seconds())
@@ -30,7 +29,7 @@ def send_transaction(address, recipient, amount, data, public_key, private_key, 
     result_decoded = msgpack.unpackb(result)["message"]
 
     print(result_decoded)
-8
+
 
 if __name__ == "__main__":
     logger = get_logger(file=f"linewallet.log")
@@ -51,6 +50,7 @@ if __name__ == "__main__":
     print(f"Sending from {address}")
     recipient = input("Recipient: ")
     amount = input("Amount: ")
+    fee = input(f"Fee: (Recommended: {get_recommneded_fee(target=target, port=port)})")
 
     send_transaction(address=address,
                      amount=amount,
@@ -59,5 +59,6 @@ if __name__ == "__main__":
                      private_key=private_key,
                      public_key=public_key,
                      recipient=recipient,
-                     target=target)
+                     target=target,
+                     fee=fee)
 
