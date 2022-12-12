@@ -16,6 +16,7 @@ from peer_ops import load_ips
 from transaction_ops import create_transaction, to_readable_amount, to_raw_amount, get_recommneded_fee
 from dircheck import make_folder
 from data_ops import get_home
+from compounder import compound_send_transaction
 
 
 def address_copy():
@@ -38,8 +39,8 @@ class Wallet:
     async def init_connect(self):
 
         failed = []
-        servers = await load_ips(fail_storage=failed, logger=logger)
-        self.target = random.choice(servers)
+        self.servers = await load_ips(fail_storage=failed, logger=logger)
+        self.target = random.choice(self.servers)
         self.connected = True
 
     async def reconnect(self):
@@ -85,10 +86,12 @@ class Wallet:
                                          timestamp=get_timestamp_seconds())
 
         try:
-            url = f"http://{self.target}:{self.port}/submit_transaction?data={json.dumps(transaction)}"
-            result = requests.get(url, timeout=1).content
-            result_decoded = msgpack.unpackb(result)["message"]
-            status_label.set_text(result_decoded)
+            results = asyncio.run(compound_send_transaction(ips=self.servers,
+                                                            fail_storage=[],
+                                                            logger=logger,
+                                                            transaction=transaction))
+
+            status_label.set_text(f"{len(results)} nodes accepted")
             self.refresh_counter = 10
 
         except Exception as e:
@@ -111,9 +114,9 @@ class RefreshClient(threading.Thread):
 
     def run(self):
         while not self.quit:
-
             if wallet.target:
                 wallet.get_balance()
+                time.sleep(30)
 
                 try:
                     init_fee.set(get_recommneded_fee(target=wallet.target,
@@ -121,9 +124,11 @@ class RefreshClient(threading.Thread):
                 except Exception as e:
                     print(f"Could not obtain fee: {e}")
 
-            if not wallet.connected and wallet.target:
+            elif not wallet.connected and wallet.target:
                 asyncio.run(wallet.reconnect())
-            time.sleep(30)
+
+            else:
+                time.sleep(1)
 
 
 if __name__ == "__main__":
@@ -181,10 +186,10 @@ if __name__ == "__main__":
     amount.grid(row=3, column=1, padx=2, pady=2, sticky="w")
 
     init_fee = customtkinter.StringVar()
-
+    init_fee.set("0")
     fee_label = customtkinter.CTkLabel(master=app, text="Fee:", anchor="e")
     fee_label.grid(row=4, column=0, padx=2, pady=2)
-    fee = customtkinter.CTkEntry(master=app, textvariable=init_fee)
+    fee = customtkinter.CTkEntry(master=app, textvariable=(init_fee))
     fee.grid(row=4, column=1, padx=2, pady=2, sticky="w")
 
     command_label = customtkinter.CTkLabel(master=app, text="Command:", anchor="e")
@@ -210,5 +215,3 @@ if __name__ == "__main__":
     connection_label.set_text("Attempting to connect")
     app.after(250, lambda: asyncio.run(wallet.init_connect()))
     app.mainloop()
-
-
