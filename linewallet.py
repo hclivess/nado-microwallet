@@ -10,9 +10,10 @@ import requests
 import asyncio
 from data_ops import get_home
 import msgpack
+from compounder import compound_send_transaction
 
 
-def send_transaction(address, recipient, amount, data, public_key, private_key, target, port, fee):
+def send_transaction(address, recipient, amount, data, public_key, private_key, ips, fee):
     transaction = create_transaction(sender=address,
                                      recipient=recipient,
                                      amount=to_raw_amount(amount),
@@ -24,11 +25,9 @@ def send_transaction(address, recipient, amount, data, public_key, private_key, 
 
     print(json.dumps(transaction, indent=4))
     input("Press any key to continue")
-    url = f"http://{target}:{port}/submit_transaction?data={json.dumps(transaction)}"
-    result = requests.get(url, timeout=1).content
-    result_decoded = msgpack.unpackb(result)["message"]
+    results = asyncio.run(compound_send_transaction(ips=ips, fail_storage=[], logger=logger, transaction=transaction))
 
-    print(result_decoded)
+    print(f"Submitted to {len(results)} nodes successfully")
 
 
 if __name__ == "__main__":
@@ -44,7 +43,8 @@ if __name__ == "__main__":
     private_key = keydict["private_key"]
     public_key = keydict["public_key"]
     address = keydict["address"]
-    target = random.choice(asyncio.run(load_ips(fail_storage=[], logger=logger)))
+    ips = asyncio.run(load_ips(fail_storage=[], logger=logger))
+    target = random.choice(ips)
     port = get_port()
 
     print(f"Sending from {address}")
@@ -55,10 +55,9 @@ if __name__ == "__main__":
     send_transaction(address=address,
                      amount=amount,
                      data="",
-                     port=port,
                      private_key=private_key,
                      public_key=public_key,
                      recipient=recipient,
-                     target=target,
+                     ips=ips,
                      fee=fee)
 
