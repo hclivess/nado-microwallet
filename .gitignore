@@ -131,3 +131,7 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+/microwallet.build/
+/microwallet.dist/
+/microwallet.onefile-build/
+/Output/
