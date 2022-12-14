@@ -39,13 +39,13 @@ class Wallet:
     async def init_connect(self):
 
         failed = []
-        self.servers = await load_ips(fail_storage=failed, logger=logger)
+        self.servers = await load_ips(fail_storage=failed, logger=logger, port=9173)
         self.target = random.choice(self.servers)
         self.connected = True
 
     async def reconnect(self):
         failed = []
-        servers = await load_ips(fail_storage=failed, logger=logger)
+        servers = await load_ips(fail_storage=failed, logger=logger, port=9173)
         if servers:
             self.target = random.choice(servers)
             self.connected = True
@@ -89,7 +89,8 @@ class Wallet:
             results = asyncio.run(compound_send_transaction(ips=self.servers,
                                                             fail_storage=[],
                                                             logger=logger,
-                                                            transaction=transaction))
+                                                            transaction=transaction,
+                                                            port=9173))
 
             status_label.set_text(f"{len(results)} nodes accepted")
             self.refresh_counter = 10
