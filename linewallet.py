@@ -25,7 +25,11 @@ def send_transaction(address, recipient, amount, data, public_key, private_key, 
 
     print(json.dumps(transaction, indent=4))
     input("Press any key to continue")
-    results = asyncio.run(compound_send_transaction(ips=ips, fail_storage=[], logger=logger, transaction=transaction))
+    results = asyncio.run(compound_send_transaction(ips=ips,
+                                                    port=9173,
+                                                    fail_storage=[],
+                                                    logger=logger,
+                                                    transaction=transaction))
 
     print(f"Submitted to {len(results)} nodes successfully")
 
