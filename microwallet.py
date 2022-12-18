@@ -141,6 +141,9 @@ if __name__ == "__main__":
     if not keyfile_found():
         save_keys(generate_keys())
 
+    info_path = os.path.normpath(f'{get_home()}/private/keys.dat')
+    logger.info(f"Key location: {info_path}")
+
     key_dict = load_keys()
     address = key_dict["address"]
     private_key = key_dict["private_key"]
