@@ -6,7 +6,6 @@ import threading
 import time
 
 import customtkinter
-import msgpack
 import requests
 
 from config import get_timestamp_seconds, get_port, create_config, config_found
@@ -50,7 +49,7 @@ class Wallet:
             self.target = random.choice(servers)
             self.connected = True
         else:
-            connection_label.set_text("Failed to connect")
+            connection_label.configure(text="Failed to connect")
 
         self.port = get_port()
 
@@ -64,15 +63,15 @@ class Wallet:
                 balance = to_readable_amount(json.loads(balance_raw.text)["account_balance"])
 
             balance_var.set(balance)
-            connection_label.set_text(f"Connected to {self.target}")
+            connection_label.configure(text=f"Connected to {self.target}")
 
             self.refresh_counter -= 1
             if self.refresh_counter < 1:
-                status_label.set_text("")
+                status_label.configure(text="")
 
         except Exception as e:
             print(f"Could not connect to get balance from {self.target}: {e}")
-            connection_label.set_text("Disconnected")
+            connection_label.configure(text="Disconnected")
             self.connected = False
 
     def send_transaction(self):
@@ -92,12 +91,12 @@ class Wallet:
                                                             transaction=transaction,
                                                             port=9173))
 
-            status_label.set_text(f"{len(results)} nodes accepted")
+            status_label.configure(text=f"{len(results)} nodes accepted")
             self.refresh_counter = 10
 
         except Exception as e:
             print(f"Could not connect to submit transaction: {e}")
-            connection_label.set_text("Disconnected")
+            connection_label.configure(text="Disconnected")
             self.connected = False
             raise
 
@@ -216,6 +215,6 @@ if __name__ == "__main__":
     refresh = RefreshClient(wallet=wallet)
     refresh.start()
 
-    connection_label.set_text("Attempting to connect")
+    connection_label.configure(text="Attempting to connect")
     app.after(250, lambda: asyncio.run(wallet.init_connect()))
     app.mainloop()
