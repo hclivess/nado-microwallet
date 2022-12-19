@@ -47,7 +47,7 @@ if __name__ == "__main__":
     private_key = keydict["private_key"]
     public_key = keydict["public_key"]
     address = keydict["address"]
-    ips = asyncio.run(load_ips(fail_storage=[], logger=logger))
+    ips = asyncio.run(load_ips(fail_storage=[], logger=logger, port=9173))
     target = random.choice(ips)
     port = get_port()
 
