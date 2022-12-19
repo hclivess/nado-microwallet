@@ -15,6 +15,7 @@ WizardSmallImageFile=graphics\mini.bmp
 
 [Files]
 Source: "microwallet.dist\*" ; DestDir: "{app}"; Flags: recursesubdirs;
+Source: "microwallet.dist\peers\*" ; DestDir: "{%USERPROFILE}\nado\peers\"; Flags: recursesubdirs;
 
 [Icons]
 Name: "{group}\NADO MicroWallet"; Filename: "{app}\microwallet.exe"
