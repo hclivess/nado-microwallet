@@ -1,17 +1,16 @@
 from config import get_timestamp_seconds, create_config, config_found, get_port
 from keys import load_keys, keyfile_found, save_keys, generate_keys
 from log_ops import get_logger
-from transaction_ops import create_transaction, to_raw_amount, get_recommneded_fee
+from transaction_ops import create_transaction, to_raw_amount, get_recommneded_fee, to_readable_amount
 import random
 from dircheck import make_folder
 from peer_ops import load_ips
 import json
-import requests
+from account_ops import get_account_value
 import asyncio
 from data_ops import get_home
-import msgpack
 from compounder import compound_send_transaction
-
+from block_ops import get_penalty
 
 def send_transaction(address, recipient, amount, data, public_key, private_key, ips, fee):
     transaction = create_transaction(sender=address,
@@ -50,8 +49,13 @@ if __name__ == "__main__":
     ips = asyncio.run(load_ips(fail_storage=[], logger=logger, port=9173))
     target = random.choice(ips)
     port = get_port()
+    balance = get_account_value(address, key="account_balance")
+    balance_readable = to_readable_amount(balance)
+
 
     print(f"Sending from {address}")
+    print(f"Balance: {balance_readable}")
+    #print(f"Mining Penalty: {penalty}")
     recipient = input("Recipient: ")
     amount = input("Amount: ")
     fee = input(f"Fee: (Recommended: {get_recommneded_fee(target=target, port=port)})")
