@@ -7,8 +7,8 @@ import msgpack
 import requests
 
 from Curve25519 import sign, verify
-from address import proof_sender
-from address import validate_address
+from address_ops import proof_sender
+from address_ops import validate_address
 from block_ops import load_block
 from config import get_config
 from config import get_timestamp_seconds
