@@ -6,6 +6,8 @@ import time
 import msgpack
 import requests
 
+import asyncio
+from compounder import compound_send_transaction
 from Curve25519 import sign, verify
 from address_ops import proof_sender
 from address_ops import validate_address
@@ -18,6 +20,7 @@ from keys import load_keys
 from log_ops import get_logger
 from account_ops import get_account, reflect_transaction
 from tornado.httpclient import HTTPClient
+from peer_ops import load_ips
 
 
 def get_recommneded_fee(target, port):
@@ -347,8 +350,11 @@ if __name__ == "__main__":
 
     config = get_config()
     #ip = config["ip"]
-    ip = "120.105.96.193"
     port = config["port"]
+    #ip = "120.105.96.193"
+    ips = asyncio.run(load_ips(logger=logger,
+                               fail_storage=[],
+                               port=port))
 
     create_tx_indexer(address)
     if tx_index_full(address):
@@ -357,21 +363,26 @@ if __name__ == "__main__":
 
     for x in range(0, 50000):
         try:
-            transaction = create_transaction(
-                sender=address,
-                recipient=recipient,
-                amount=amount,
-                data=data,
-                public_key=public_key,
-                timestamp=get_timestamp_seconds(),
-                fee=0,
-                private_key=private_key
-            )
+            transaction = create_transaction(sender=address,
+                                             recipient=recipient,
+                                             amount=to_raw_amount(amount),
+                                             data=data,
+                                             fee=0,
+                                             public_key=public_key,
+                                             private_key=private_key,
+                                             timestamp=get_timestamp_seconds())
 
             print(transaction)
             print(validate_transaction(transaction, logger=logger))
 
-            requests.get(f"http://{ip}:{port}/submit_transaction?data={json.dumps(transaction)}", timeout=5)
+            fails = []
+            results = asyncio.run(compound_send_transaction(ips=ips,
+                                                            port=port,
+                                                            fail_storage=fails,
+                                                            logger=logger,
+                                                            transaction=transaction))
+
+            print(f"Submitted to {len(results)} nodes successfully")
 
             time.sleep(5)
         except Exception as e:
