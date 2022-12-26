@@ -347,7 +347,7 @@ if __name__ == "__main__":
 
     config = get_config()
     #ip = config["ip"]
-    ip = "159.65.123.12"
+    ip = "120.105.96.193"
     port = config["port"]
 
     create_tx_indexer(address)
