@@ -1,20 +1,19 @@
 import json
 import os
+import time
 
+import msgpack
 import requests
+from tornado.httpclient import AsyncHTTPClient
 
+from account_ops import get_account_value
 from config import get_timestamp_seconds, get_config
 from data_ops import set_and_sort, average, get_home
 from hashing import blake2b_hash_link
 from keys import load_keys
 from log_ops import get_logger
 from peer_ops import load_peer
-from account_ops import get_account_value
-import msgpack
-
-def check_block_structure():
-    """check timestamp, etc if syncing blocks from others"""
-    pass
+from sqlite_ops import DbHandler
 
 
 def get_hash_penalty(a: str, b: str):
@@ -41,7 +40,7 @@ def get_block_reward(logger, blocks_backward=100, reward_cap=5000000000):
     reward = 0
 
     while 0 < block_number > (latest_block_number - blocks_backward):
-        block = load_block(parent, logger=logger)
+        block = load_block_from_hash(parent, logger=logger)
         parent = block["parent_hash"]
         block_number = block["block_number"]
 
@@ -54,40 +53,83 @@ def get_block_reward(logger, blocks_backward=100, reward_cap=5000000000):
     return reward
 
 
-def valid_block_gap(logger, new_block, gap=60):
-    old_timestamp = get_latest_block_info(logger=logger)["block_timestamp"]
+def valid_block_gap(old_block, new_block):
+    old_timestamp = old_block["block_timestamp"]
     new_timestamp = new_block["block_timestamp"]
 
-    if get_timestamp_seconds() >= new_timestamp >= old_timestamp + 60:
+    if get_timestamp_seconds() >= new_timestamp >= old_timestamp:
         return True
     else:
         return False
 
 
+def valid_block_timestamp(new_block, old_block):
+    new_timestamp = new_block["block_timestamp"]
+    old_timestamp = old_block["block_timestamp"]
+
+    if get_timestamp_seconds() >= new_timestamp > old_timestamp:
+        return True
+    elif new_block["block_number"] < 20000:  # compatibility
+        return True
+    else:
+        return False
+
+
+def check_target_match(transaction_list, block_number, logger):
+    try:
+        for transaction in transaction_list:
+            if transaction["target_block"] != block_number:
+                return False
+        return True
+    except Exception as e:
+        logger.error(f"Error when checking transaction target block: {e}")
+        return False
+
+
+def match_transactions_target(transaction_list, block_number, logger):
+    try:
+        matched_txs = []
+
+        for transaction in transaction_list:
+            if transaction["target_block"] == block_number:
+                matched_txs.append(transaction)
+
+        return matched_txs
+    except Exception as e:
+        logger.error(f"Error when matching transactions to target block: {e}")
+        return False
+
 def get_block_candidate(
-        block_producers, block_producers_hash, transaction_pool, logger, peer_file_lock
+        block_producers, block_producers_hash, transaction_pool, logger, event_bus, peer_file_lock, latest_block
 ):
-    latest_block = get_latest_block_info(logger=logger)
     best_producer = pick_best_producer(block_producers,
                                        logger=logger,
-                                       peer_file_lock=peer_file_lock)
+                                       event_bus=event_bus,
+                                       peer_file_lock=peer_file_lock,
+                                       latest_block=latest_block)
 
     logger.info(
-        f"Producing block candidate for: {block_producers} won by {best_producer}"
+        f"Producing block candidate for: {len(block_producers)} block producers won by {best_producer}"
     )
 
+    block_number = latest_block["block_number"] + 1
+
+    targeted_transactions = match_transactions_target(transaction_list=transaction_pool.copy(),
+                                                      block_number=block_number,
+                                                      logger=logger)
+
     block = construct_block(
-        block_number=latest_block["block_number"] + 1,
+        block_timestamp=get_timestamp_seconds(),
+        block_number=block_number,
         parent_hash=latest_block["block_hash"],
         block_ip=best_producer,
         creator=load_peer(logger=logger,
                           ip=best_producer,
                           key="peer_address",
                           peer_file_lock=peer_file_lock),
-        transaction_pool=transaction_pool.copy(),
+        transaction_pool=targeted_transactions,
         block_producers_hash=block_producers_hash,
         block_reward=get_block_reward(logger=logger),
-        logger=logger,
     )
     return block
 
@@ -107,6 +149,8 @@ def fee_over_blocks(logger, number_of_blocks=250):
         return average(fees)
     else:
         return 0
+
+
 def get_transaction_pool_demo():
     """use for demo only"""
     config = get_config()
@@ -125,7 +169,17 @@ def get_block(block):
             block = msgpack.load(file)
         return block
     else:
-        return None
+        return False
+
+
+def get_block_number(number):
+    try:
+        block_handler = DbHandler(db_file=f"{get_home()}/index/blocks.db")
+        fetched = block_handler.db_fetch("SELECT block_hash FROM block_index WHERE block_number = ?", (number,))[0][0]
+        block_handler.close()
+        return get_block(fetched)
+    except Exception as e:
+        return False
 
 
 def get_block_producers_hash_demo():
@@ -138,12 +192,13 @@ def get_block_producers_hash_demo():
     return block_producers_hash
 
 
-def load_block(block_hash: str, logger):
+def load_block_from_hash(block_hash: str, logger):
     try:
         with open(f"{get_home()}/blocks/{block_hash}.block", "rb") as infile:
             return msgpack.unpack(infile)
     except Exception as e:
         logger.info(f"Failed to load block {block_hash}: {e}")
+        return False
 
 
 def load_block_producers() -> list:
@@ -162,52 +217,86 @@ def save_block_producers(block_producers: list):
     return True
 
 
-def save_block(block_message: dict, logger):
-    try:
-        block_hash = block_message["block_hash"]
-        with open(f"{get_home()}/blocks/{block_hash}.block", "wb") as outfile:
-            msgpack.pack(block_message, outfile)
-        return True
-    except Exception as e:
-        logger.warning(f"Failed to save block {block_message['block_hash']} due to {e}")
+def save_block(block: dict, logger):
+    path = f"{get_home()}/blocks/{block['block_hash']}.block"
 
+    while True:
+        try:
+            with open(path, "wb") as outfile:
+                msgpack.pack(block, outfile)
 
-def latest_block_divisible_by(divisor, logger):
-    if get_latest_block_info(logger=logger)["block_number"] % divisor == 0:
-        return True
-    else:
-        return False
+            with open(path, "rb") as infile:
+                """validate"""
+                read_block = msgpack.load(infile)
+
+            if read_block == block:
+                return True
+            else:
+                logger.warning("Block incoherence encountered")
+
+        except Exception as e:
+            logger.warning(f"Failed to save block {block['block_hash']} due to {e}")
+            time.sleep(1)
 
 
 def get_latest_block_info(logger):
     try:
         with open(f"{get_home()}/index/latest_block.dat", "r") as infile:
-            info = load_block(block_hash=json.load(infile),
-                              logger=logger)
+            info = load_block_from_hash(block_hash=json.load(infile),
+                                        logger=logger)
             return info
     except Exception as e:
-        logger.info("Failed to get latest block info")
+        logger.info(f"Failed to get latest block info: {e}")
 
 
-def set_latest_block_info(block_message: dict, logger):
-    try:
-        with open(f"{get_home()}/index/latest_block.dat", "w") as outfile:
-            json.dump(block_message["block_hash"], outfile)
+def unindex_block(block, logger):
+    while True:
+        try:
+            block_handler = DbHandler(db_file=f"{get_home()}/index/blocks.db")
+            block_handler.db_execute(
+                "DELETE FROM block_index WHERE block_number = ?", (block['block_number'],))
+            block_handler.close()
 
-        with open(f"{get_home()}/blocks/block_numbers/{block_message['block_number']}.dat", "w") as outfile:
-            json.dump(block_message["block_hash"], outfile)
+            block_data = f"{get_home()}/blocks/{block['block_hash']}.block"
+            while os.path.exists(block_data):
+                try:
+                    os.remove(block_data)
+                except Exception as e:
+                    logger.error(f"Failed to remove {block_data}: {e}, retrying")
+            break
+        except Exception as e:
+            logger.error(f"Failed to unindex block: {e}")
 
-        with open(f"{get_home()}/blocks/block_numbers/index.dat", "w") as outfile:
-            json.dump({"last_number": block_message["block_number"]}, outfile)
-        return True
 
-    except Exception as e:
-        logger.info(f"Failed to set latest block info to {block_message['block_hash']}")
-        return False
+def set_latest_block_info(block: dict, logger):
+    while True:
+        try:
+            new_hash = block["block_hash"]
+            old_hash = None
+
+            while not old_hash == new_hash:
+                with open(f"{get_home()}/index/latest_block.dat", "w") as outfile:
+                    json.dump(new_hash, outfile)
+
+                with open(f"{get_home()}/index/latest_block.dat", "r") as infile:
+                    """read data to verify they have been saved properly"""
+                    old_hash = json.load(infile)
+
+            blocks_handler = DbHandler(db_file=f"{get_home()}/index/blocks.db")
+            blocks_handler.db_execute("INSERT OR IGNORE INTO block_index VALUES (?, ?)",
+                                      (block['block_hash'], block['block_number']))
+
+            blocks_handler.close()
+
+            return block
+
+        except Exception as e:
+            logger.info(f"Failed to set latest block info to {block['block_hash']}: {e}")
+            time.sleep(1)
 
 
 def construct_block(
-        logger,
+        block_timestamp: int,
         block_number: int,
         parent_hash: str,
         creator: str,
@@ -233,19 +322,23 @@ def construct_block(
     }
     block_hash = blake2b_hash_link(link_from=parent_hash, link_to=block_message)
     block_message.update(block_hash=block_hash)
-    block_message.update(block_timestamp=get_timestamp_seconds())
+    block_message.update(block_timestamp=block_timestamp)
 
     block_penalty = get_penalty(producer_address=creator,
-                                block_hash=block_hash)
+                                block_hash=block_hash,
+                                block_number=block_number)
 
     block_message.update(block_penalty=block_penalty)
     return block_message
 
 
-def knows_block(target_peer, hash, logger):
+async def knows_block(target_peer, port, hash, logger):
     try:
-        url = f"http://{target_peer}:{get_config()['port']}/get_block?hash={hash}"
-        if requests.get(url, timeout=5).status_code == 200:
+        http_client = AsyncHTTPClient()
+        url = f"http://{target_peer}:{port}/get_block?hash={hash}"
+        result = await http_client.fetch(url)
+
+        if result.code == 200:
             return True
         else:
             return False
@@ -255,41 +348,47 @@ def knows_block(target_peer, hash, logger):
         return False
 
 
-def update_child_in_latest_block(child_hash, logger):
+def update_child_in_latest_block(child_hash, logger, parent):
     """the only method to save block except for creation to avoid read/write collision"""
-    parent = get_latest_block_info(logger=logger)
-    parent["child_hash"] = child_hash
-    save_block(parent, logger=logger)
-    return True
+    while True:
+        try:
+            parent["child_hash"] = child_hash
+            save_block(parent, logger=logger)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to update child hash in {parent}: {e}")
 
 
-def get_blocks_after(target_peer, from_hash, count=50, compress="msgpack"):
+async def get_blocks_after(target_peer, from_hash, count=50, compress="msgpack"):
+    http_client = AsyncHTTPClient()
 
     url = f"http://{target_peer}:{get_config()['port']}/get_blocks_after?hash={from_hash}&count={count}&compress={compress}"
-    result = requests.get(url, timeout=5)
-    code = result.status_code
+    result = await http_client.fetch(url)
+    code = result.code
 
     if code == 200 and compress == "msgpack":
-        read = result.content
+        read = result.body
         return msgpack.unpackb(read)
     elif code == 200:
-        text = result.text
+        text = result.body.decode()
         return json.loads(text)["blocks_after"]
     else:
         return False
 
 
-def get_blocks_before(target_peer, from_hash, count=50, compress="true"):
+async def get_blocks_before(target_peer, from_hash, count=50, compress="true"):
     try:
+        http_client = AsyncHTTPClient()
+
         url = f"http://{target_peer}:{get_config()['port']}/get_blocks_before?hash={from_hash}&count={count}&compress={compress}"
-        result = requests.get(url, timeout=5)
-        code = result.status_code
+        result = await http_client.fetch(url)
+        code = result.code
 
         if code == 200 and compress == "msgpack":
-            read = result.content
+            read = result.body
             return msgpack.unpackb(read)
         elif code == 200:
-            text = result.text
+            text = result.body.decode()
             return json.loads(text)["blocks_before"]
         else:
             return False
@@ -299,14 +398,15 @@ def get_blocks_before(target_peer, from_hash, count=50, compress="true"):
         return False
 
 
-def get_from_single_target(key, target_peer, logger):
+async def get_from_single_target(key, target_peer, logger):  # todo add msgpack support
     """obtain from a single target"""
 
     try:
+        http_client = AsyncHTTPClient()
         url = f"http://{target_peer}:{get_config()['port']}/{key}"
-        result = requests.get(url, timeout=5)
-        text = result.text
-        code = result.status_code
+        result = await http_client.fetch(url)
+        text = result.body.decode()
+        code = result.code
 
         if code == 200:
             return json.loads(text)[key]
@@ -314,45 +414,72 @@ def get_from_single_target(key, target_peer, logger):
             return False
 
     except Exception as e:
-        logger.error(f"Failed to get block producers from {target_peer}")
+        logger.error(f"Failed to get {key} from {target_peer}: {e}")
         return False
 
 
-def get_since_last_block(logger) -> [str, None]:
-    since_last_block = (
-            get_timestamp_seconds()
-            - get_latest_block_info(logger=logger)["block_timestamp"]
-    )
-    return since_last_block
+def get_ip_penalty(producer, logger, blocks_backward=50):
+    """calculates how many blocks an ip received over a given period"""
+    latest_block_info = get_latest_block_info(logger=logger)
+
+    parent = latest_block_info["block_hash"]
+    latest_block_number = latest_block_info["block_number"]
+    block_number = latest_block_number
+    produced_count = 0
+
+    while 0 < block_number > (latest_block_number - blocks_backward):
+        block = load_block_from_hash(parent, logger=logger)
+        parent = block["parent_hash"]
+        block_number = block["block_number"]
+
+        if block["block_ip"] == producer:
+            produced_count += 1
+
+    return produced_count
 
 
-def get_penalty(producer_address, block_hash):
-    miner_penalty = get_account_value(address=producer_address, key="account_produced")
-    combined_penalty = get_hash_penalty(a=producer_address, b=block_hash) + miner_penalty
-    block_penalty = combined_penalty - get_account_value(producer_address, key="account_burned") * 100
+def get_penalty(producer_address, block_hash, block_number):
+    hash_penalty = get_hash_penalty(a=producer_address, b=block_hash)
+    miner_penalty = get_account_value(address=producer_address, key="produced")
+    combined_penalty = hash_penalty + miner_penalty
+    burn_bonus = get_account_value(producer_address, key="burned")
+    block_penalty = combined_penalty - burn_bonus * 100
+
+    if block_penalty < hash_penalty:
+        block_penalty = hash_penalty
+
     return block_penalty
 
 
-def pick_best_producer(block_producers, logger, peer_file_lock):
-    block_hash = get_latest_block_info(logger=logger)["block_hash"]
+def pick_best_producer(block_producers, logger, event_bus, peer_file_lock, latest_block):
+    block_hash = latest_block["block_hash"]
 
     previous_block_penalty = None
     best_producer = None
 
+    penalty_list = {}
     for producer_ip in block_producers:
-        producer_address = load_peer(logger=logger,
-                                     ip=producer_ip,
-                                     key="peer_address",
-                                     peer_file_lock=peer_file_lock)
+        try:
+            producer_address = load_peer(logger=logger,
+                                         ip=producer_ip,
+                                         key="peer_address",
+                                         peer_file_lock=peer_file_lock)
 
-        block_penalty = get_penalty(producer_address=producer_address,
-                                    block_hash=block_hash)
+            block_penalty = get_penalty(producer_address=producer_address,
+                                        block_hash=block_hash,
+                                        block_number=latest_block["block_number"])
 
-        if not previous_block_penalty:
-            previous_block_penalty = block_penalty
+            penalty_list.update({producer_address: block_penalty})
+        except Exception as e:
+            logger.info(f"Failed to load block producer {producer_ip} from drive: {e}")
+            block_penalty = None
 
-        if block_penalty <= previous_block_penalty:
-            best_producer = producer_ip
+        if block_penalty:
+            if not previous_block_penalty or block_penalty <= previous_block_penalty:
+                previous_block_penalty = block_penalty
+                best_producer = producer_ip
+
+    event_bus.emit('penalty-list-update', penalty_list)
 
     return best_producer
 
@@ -368,7 +495,7 @@ if __name__ == "__main__":
         latest_block_info = get_latest_block_info(logger=logger)
 
         block_message = construct_block(
-            logger=logger,
+            block_timestamp=get_timestamp_seconds(),
             block_number=latest_block_info["block_number"] + 1,
             parent_hash=latest_block_info["block_hash"],
             block_ip=block_ip,

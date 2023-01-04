@@ -4,7 +4,7 @@ import asyncio
 import random
 import threading
 import time
-
+from transaction_ops import get_target_block
 import customtkinter
 import requests
 
@@ -82,7 +82,8 @@ class Wallet:
                                          fee=int(fee.get()),
                                          public_key=public_key,
                                          private_key=private_key,
-                                         timestamp=get_timestamp_seconds())
+                                         timestamp=get_timestamp_seconds(),
+                                         target_block=asyncio.run(get_target_block(target=self.target, port=self.port)))
 
         try:
             results = asyncio.run(compound_send_transaction(ips=self.servers,
