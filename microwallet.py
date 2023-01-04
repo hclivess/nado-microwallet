@@ -60,7 +60,7 @@ class Wallet:
             if balance_raw.status_code != 200:
                 balance = 0
             else:
-                balance = to_readable_amount(json.loads(balance_raw.text)["account_balance"])
+                balance = to_readable_amount(json.loads(balance_raw.text)["balance"])
 
             balance_var.set(balance)
             connection_label.configure(text=f"Connected to {self.target}")
