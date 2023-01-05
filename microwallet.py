@@ -120,8 +120,8 @@ class RefreshClient(threading.Thread):
                 time.sleep(30)
 
                 try:
-                    init_fee.set(get_recommneded_fee(target=wallet.target,
-                                                     port=wallet.port))
+                    init_fee.set(asyncio.run(get_recommneded_fee(target=wallet.target,
+                                                                 port=wallet.port)))
                 except Exception as e:
                     print(f"Could not obtain fee: {e}")
 
