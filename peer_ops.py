@@ -64,7 +64,7 @@ async def get_remote_status(target_peer, logger) -> [dict, bool]:  # todo add ms
     try:
         http_client = AsyncHTTPClient()
         url = f"http://{target_peer}:{get_port()}/status"
-        result = await http_client.fetch(url)
+        result = await http_client.fetch(url, request_timeout=5)
         text = result.body.decode()
         code = result.code
 

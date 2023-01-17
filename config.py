@@ -44,7 +44,7 @@ def test_self_port(ip, port):
 async def get_public_ip():
     http_client = AsyncHTTPClient()
     url = "https://api.ipify.org"
-    ip = await http_client.fetch(url)
+    ip = await http_client.fetch(url, request_timeout=5)
     return ip.body.decode()
 
 

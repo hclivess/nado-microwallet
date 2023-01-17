@@ -27,7 +27,7 @@ async def get_list_of(key, peer, port, fail_storage, logger, compress=None):
     try:
         async with sem:
             http_client = AsyncHTTPClient()
-            response = await http_client.fetch(url_construct)
+            response = await http_client.fetch(url_construct, request_timeout=5)
 
             if compress == "msgpack":
                 fetched = msgpack.unpackb(response.body)
@@ -72,7 +72,7 @@ async def send_transaction(peer, port, logger, fail_storage, transaction, compre
     try:
         async with sem:
             http_client = AsyncHTTPClient()
-            response = await http_client.fetch(url_construct)
+            response = await http_client.fetch(url_construct, request_timeout=5)
             fetched = msgpack.unpackb(response.body)["message"]
             return peer, fetched
 
@@ -108,7 +108,7 @@ async def get_status(peer, port, logger, fail_storage, compress=None):
     try:
         async with sem:
             http_client = AsyncHTTPClient()
-            response = await http_client.fetch(url_construct)
+            response = await http_client.fetch(url_construct, request_timeout=5)
 
             if compress == "msgpack":
                 fetched = msgpack.unpackb(response.body)
@@ -149,7 +149,7 @@ async def announce_self(peer, port, my_ip, logger, fail_storage):
     try:
         async with sem:
             http_client = AsyncHTTPClient()
-            response = await http_client.fetch(url_construct)
+            response = await http_client.fetch(url_construct, request_timeout=5)
 
             fetched = response.body.decode()
             return fetched
