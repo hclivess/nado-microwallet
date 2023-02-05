@@ -272,7 +272,7 @@ def create_transaction(draft, private_key, fee):
     txid = create_txid(transaction_message)
     transaction_message.update(txid=txid)
 
-    signature = sign(private_key=private_key, message=msgpack.packb(transaction_message))
+    signature = sign(private_key=private_key, message=bytes(txid, "utf-8"))
     transaction_message.update(signature=signature)
 
     #from ops.log_ops import get_logger
@@ -337,7 +337,7 @@ def index_transactions(block, sorted_transactions, logger):
 if __name__ == "__main__":
     logger = get_logger(file="transactions.log")
     # print(get_account("noob23"))
-    LOCAL = False
+    LOCAL = True
 
     key_dict = load_keys()
     address = key_dict["address"]

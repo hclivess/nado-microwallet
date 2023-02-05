@@ -17,7 +17,7 @@ from dircheck import make_folder
 from ops.data_ops import get_home
 from compounder import compound_send_transaction
 
-
+LOCAL = True
 def address_copy():
     app.clipboard_clear()
     app.clipboard_append(address)
@@ -36,7 +36,6 @@ class Wallet:
         self.refresh_counter = 10
         self.draft = None
     async def init_connect(self):
-
         failed = []
         self.servers = await load_ips(fail_storage=failed, logger=logger, port=9173)
         self.target = random.choice(self.servers)
