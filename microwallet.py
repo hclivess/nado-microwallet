@@ -133,7 +133,7 @@ class RefreshClient(threading.Thread):
                 except Exception as e:
                     print(f"Could not obtain fee: {e}")
 
-                time.sleep(1)
+                time.sleep(5)
 
             elif not wallet.connected and wallet.target:
                 asyncio.run(wallet.reconnect())
