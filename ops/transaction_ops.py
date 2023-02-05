@@ -5,7 +5,7 @@ import time
 import msgpack
 from tornado.httpclient import AsyncHTTPClient
 
-from Curve25519 import sign, verify
+from Curve25519 import sign, verify, unhex
 from ops.account_ops import get_account, reflect_transaction
 from address import proof_sender
 from address import validate_address
@@ -272,7 +272,7 @@ def create_transaction(draft, private_key, fee):
     txid = create_txid(transaction_message)
     transaction_message.update(txid=txid)
 
-    signature = sign(private_key=private_key, message=bytes(txid, "utf-8"))
+    signature = sign(private_key=private_key, message=unhex(txid))
     transaction_message.update(signature=signature)
 
     #from ops.log_ops import get_logger
