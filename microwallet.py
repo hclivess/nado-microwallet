@@ -4,17 +4,17 @@ import asyncio
 import random
 import threading
 import time
-from transaction_ops import get_target_block
+from ops.transaction_ops import get_target_block
 import customtkinter
 import requests
 
 from config import get_timestamp_seconds, get_port, create_config, config_found
-from keys import load_keys, keyfile_found, save_keys, generate_keys
-from log_ops import get_logger
-from peer_ops import load_ips
-from transaction_ops import create_transaction, to_readable_amount, to_raw_amount, get_recommneded_fee
+from ops.key_ops import load_keys, keyfile_found, save_keys, generate_keys
+from ops.log_ops import get_logger
+from ops.peer_ops import load_ips
+from ops.transaction_ops import create_transaction, to_readable_amount, to_raw_amount, get_recommneded_fee, draft_transaction, get_base_fee
 from dircheck import make_folder
-from data_ops import get_home
+from ops.data_ops import get_home
 from compounder import compound_send_transaction
 
 
@@ -34,7 +34,7 @@ class Wallet:
         self.port = get_port()
         self.connected = False
         self.refresh_counter = 10
-
+        self.draft = None
     async def init_connect(self):
 
         failed = []
@@ -75,22 +75,18 @@ class Wallet:
             self.connected = False
 
     def send_transaction(self):
-        transaction = create_transaction(sender=address,
-                                         recipient=recipient.get(),
-                                         amount=to_raw_amount(amount.get()),
-                                         data={"data": data.get(), "command": command.get()},
+
+        transaction = create_transaction(draft=wallet.draft,
                                          fee=int(fee.get()),
-                                         public_key=public_key,
-                                         private_key=private_key,
-                                         timestamp=get_timestamp_seconds(),
-                                         target_block=asyncio.run(get_target_block(target=self.target, port=self.port)))
+                                         private_key=private_key)
 
         try:
             results = asyncio.run(compound_send_transaction(ips=self.servers,
                                                             fail_storage=[],
                                                             logger=logger,
                                                             transaction=transaction,
-                                                            port=9173))
+                                                            port=9173,
+                                                            semaphore=asyncio.Semaphore(50)))
 
             status_label.configure(text=f"{len(results)} nodes accepted")
             self.refresh_counter = 10
@@ -117,13 +113,27 @@ class RefreshClient(threading.Thread):
         while not self.quit:
             if wallet.target:
                 wallet.get_balance()
-                time.sleep(30)
+
+                wallet.draft = draft_transaction(sender=address,
+                                                 recipient=recipient.get(),
+                                                 amount=to_raw_amount(amount.get()),
+                                                 data={"data": data.get(), "command": command.get()},
+                                                 public_key=public_key,
+                                                 timestamp=get_timestamp_seconds(),
+                                                 target_block=asyncio.run(
+                                                     get_target_block(target=wallet.target, port=wallet.port)))
+
+
 
                 try:
                     init_fee.set(asyncio.run(get_recommneded_fee(target=wallet.target,
-                                                                 port=wallet.port)))
+                                                                 port=wallet.port,
+                                                                 base_fee=get_base_fee(transaction=wallet.draft)
+                                                                 )))
                 except Exception as e:
                     print(f"Could not obtain fee: {e}")
+
+                time.sleep(1)
 
             elif not wallet.connected and wallet.target:
                 asyncio.run(wallet.reconnect())

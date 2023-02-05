@@ -6,7 +6,7 @@ import socket
 
 from tornado.httpclient import AsyncHTTPClient
 
-from data_ops import get_home
+from ops.data_ops import get_home
 from hashing import create_nonce
 
 
