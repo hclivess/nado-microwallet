@@ -17,7 +17,7 @@ from dircheck import make_folder
 from ops.data_ops import get_home
 from compounder import compound_send_transaction
 
-LOCAL = True
+LOCAL = False
 def address_copy():
     app.clipboard_clear()
     app.clipboard_append(address)
@@ -37,13 +37,19 @@ class Wallet:
         self.draft = None
     async def init_connect(self):
         failed = []
-        self.servers = await load_ips(fail_storage=failed, logger=logger, port=9173)
+        if LOCAL:
+            self.servers = ["127.0.0.1"]
+        else:
+            self.servers = await load_ips(fail_storage=failed, logger=logger, port=9173)
         self.target = random.choice(self.servers)
         self.connected = True
 
     async def reconnect(self):
         failed = []
-        servers = await load_ips(fail_storage=failed, logger=logger, port=9173)
+        if LOCAL:
+            servers = ["127.0.0.1"]
+        else:
+            servers = await load_ips(fail_storage=failed, logger=logger, port=9173)
         if servers:
             self.target = random.choice(servers)
             self.connected = True
