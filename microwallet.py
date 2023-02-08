@@ -40,8 +40,12 @@ class Wallet:
         if LOCAL:
             self.servers = ["127.0.0.1"]
         else:
-            self.servers = await load_ips(fail_storage=failed, logger=logger, port=9173)
+            self.servers = await load_ips(fail_storage=failed,
+                                          logger=logger,
+                                          port=9173,
+                                          minimum=1)
         self.target = random.choice(self.servers)
+        logger.info(f"Picked {self.target}")
         self.connected = True
 
     async def reconnect(self):
@@ -49,9 +53,13 @@ class Wallet:
         if LOCAL:
             servers = ["127.0.0.1"]
         else:
-            servers = await load_ips(fail_storage=failed, logger=logger, port=9173)
+            servers = await load_ips(fail_storage=failed,
+                                     logger=logger,
+                                     port=9173,
+                                     minimum=1)
         if servers:
             self.target = random.choice(servers)
+            logger.info(f"Picked {self.target}")
             self.connected = True
         else:
             connection_label.configure(text="Failed to connect")
@@ -126,14 +134,17 @@ class RefreshClient(threading.Thread):
                                                  public_key=public_key,
                                                  timestamp=get_timestamp_seconds(),
                                                  target_block=asyncio.run(
-                                                     get_target_block(target=wallet.target, port=wallet.port)))
+                                                     get_target_block(target=wallet.target,
+                                                                      port=wallet.port,
+                                                                      logger=logger)))
 
 
 
                 try:
                     init_fee.set(asyncio.run(get_recommneded_fee(target=wallet.target,
                                                                  port=wallet.port,
-                                                                 base_fee=get_base_fee(transaction=wallet.draft)
+                                                                 base_fee=get_base_fee(transaction=wallet.draft),
+                                                                 logger=logger
                                                                  )))
                 except Exception as e:
                     print(f"Could not obtain fee: {e}")
