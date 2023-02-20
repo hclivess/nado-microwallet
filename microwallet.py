@@ -90,7 +90,7 @@ class Wallet:
     def send_transaction(self):
 
         transaction = create_transaction(draft=wallet.draft,
-                                         fee=int(fee.get()),
+                                         fee=to_raw_amount(fee.get()),
                                          private_key=private_key)
 
         try:
@@ -141,11 +141,14 @@ class RefreshClient(threading.Thread):
 
 
                 try:
-                    init_fee.set(asyncio.run(get_recommneded_fee(target=wallet.target,
+                    fee_raw = asyncio.run(get_recommneded_fee(target=wallet.target,
                                                                  port=wallet.port,
                                                                  base_fee=get_base_fee(transaction=wallet.draft),
                                                                  logger=logger
-                                                                 )))
+                                                                 ))
+                    fee_readable = to_readable_amount(fee_raw)
+
+                    init_fee.set(fee_readable)
                 except Exception as e:
                     print(f"Could not obtain fee: {e}")
 
