@@ -358,7 +358,7 @@ def index_transactions(block, sorted_transactions, logger):
 if __name__ == "__main__":
     logger = get_logger(file="transactions.log")
     # print(get_account("noob23"))
-    LOCAL = False
+    LOCAL = True
 
     key_dict = load_keys()
     address = key_dict["address"]
@@ -392,11 +392,20 @@ if __name__ == "__main__":
                                       target_block=asyncio.run(get_target_block(target=ips[0],
                                                                                 port=port,
                                                                                 logger=logger)))
+            fee = asyncio.run(get_recommneded_fee(target=ips[0],
+                                                  port=port,
+                                                  base_fee=get_base_fee(transaction=draft),
+                                                  logger=logger))
+            if fee > 500:
+                fee = 500
 
-            transaction = create_transaction(draft=draft, private_key=private_key, fee=0)
+            transaction = create_transaction(draft=draft,
+                                             private_key=private_key,
+                                             fee=fee
+                                             )
 
             print(transaction)
-            print(validate_transaction(transaction, logger=logger, block_height=0))
+#            print(validate_transaction(transaction["txid"], logger=logger, block_height=0))
 
             fails = []
             results = asyncio.run(compound_send_transaction(ips=ips,
