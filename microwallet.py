@@ -35,6 +35,8 @@ class Wallet:
         self.connected = False
         self.refresh_counter = 10
         self.draft = None
+        self.draft_lock = threading.Lock()
+
     async def init_connect(self):
         failed = []
         if LOCAL:
@@ -87,19 +89,60 @@ class Wallet:
             connection_label.configure(text="Disconnected")
             self.connected = False
 
-    def send_transaction(self):
-
-        transaction = create_transaction(draft=wallet.draft,
-                                         fee=to_raw_amount(fee.get()),
-                                         private_key=private_key)
+    async def update_draft(self):
+        """Update the transaction draft with current field values"""
+        if not self.target:
+            return
 
         try:
-            results = asyncio.run(compound_send_transaction(ips=self.servers,
-                                                            fail_storage=[],
-                                                            logger=logger,
-                                                            transaction=transaction,
-                                                            port=9173,
-                                                            semaphore=asyncio.Semaphore(50)))
+            target_block = await get_target_block(target=self.target,
+                                                  port=self.port,
+                                                  logger=logger)
+
+            with self.draft_lock:
+                self.draft = draft_transaction(
+                    sender=address,
+                    recipient=recipient.get(),
+                    amount=to_raw_amount(amount.get()),
+                    data={"data": data.get(), "command": command.get()},
+                    public_key=public_key,
+                    timestamp=get_timestamp_seconds(),
+                    target_block=target_block
+                )
+
+            fee_raw = await get_recommneded_fee(
+                target=self.target,
+                port=self.port,
+                base_fee=get_base_fee(transaction=self.draft),
+                logger=logger
+            )
+            fee_readable = to_readable_amount(fee_raw)
+            init_fee.set(fee_readable)
+
+        except Exception as e:
+            print(f"Error updating draft: {e}")
+            logger.error(f"Draft update failed: {e}")
+
+    def send_transaction(self):
+        # Ensure we have the latest draft before sending
+        asyncio.run(self.update_draft())
+
+        with self.draft_lock:
+            transaction = create_transaction(
+                draft=self.draft,
+                fee=to_raw_amount(fee.get()),
+                private_key=private_key
+            )
+
+        try:
+            results = asyncio.run(compound_send_transaction(
+                ips=self.servers,
+                fail_storage=[],
+                logger=logger,
+                transaction=transaction,
+                port=9173,
+                semaphore=asyncio.Semaphore(50)
+            ))
 
             status_label.configure(text=f"{len(results)} nodes accepted")
             self.refresh_counter = 10
@@ -111,9 +154,10 @@ class Wallet:
             raise
 
 
-def exit_app():
-    refresh.quit = True
-    app.quit()
+def on_field_change(*args):
+    """Callback for when any field changes"""
+    if wallet.target:
+        app.after(100, lambda: asyncio.run(wallet.update_draft()))
 
 
 class RefreshClient(threading.Thread):
@@ -126,40 +170,17 @@ class RefreshClient(threading.Thread):
         while not self.quit:
             if wallet.target:
                 wallet.get_balance()
-
-                wallet.draft = draft_transaction(sender=address,
-                                                 recipient=recipient.get(),
-                                                 amount=to_raw_amount(amount.get()),
-                                                 data={"data": data.get(), "command": command.get()},
-                                                 public_key=public_key,
-                                                 timestamp=get_timestamp_seconds(),
-                                                 target_block=asyncio.run(
-                                                     get_target_block(target=wallet.target,
-                                                                      port=wallet.port,
-                                                                      logger=logger)))
-
-
-
-                try:
-                    fee_raw = asyncio.run(get_recommneded_fee(target=wallet.target,
-                                                                 port=wallet.port,
-                                                                 base_fee=get_base_fee(transaction=wallet.draft),
-                                                                 logger=logger
-                                                                 ))
-                    fee_readable = to_readable_amount(fee_raw)
-
-                    init_fee.set(fee_readable)
-                except Exception as e:
-                    print(f"Could not obtain fee: {e}")
-
+                asyncio.run(wallet.update_draft())
                 time.sleep(5)
-
             elif not wallet.connected and wallet.target:
                 asyncio.run(wallet.reconnect())
-
             else:
                 time.sleep(1)
 
+
+def exit_app():
+    refresh.quit = True
+    app.quit()
 
 if __name__ == "__main__":
     logger = get_logger(file=f"wallet.log")
